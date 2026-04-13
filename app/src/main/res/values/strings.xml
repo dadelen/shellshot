@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">ShellShot</string>
+    <string name="notification_channel_name">自动带壳服务</string>
+    <string name="notification_channel_description">监听截图目录并自动生成带壳图</string>
+    <string name="notification_title">自动带壳已开启</string>
+    <string name="notification_text">正在后台监听截图目录</string>
+    <string name="notification_action_stop">停止监听</string>
+</resources>
