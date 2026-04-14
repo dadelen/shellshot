@@ -246,6 +246,12 @@ class MainViewModel(
         }
     }
 
+    fun setBatteryOptimizationEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            appContainer.appPrefs.updateBatteryOptimizationEnabled(enabled)
+        }
+    }
+
     fun setOutputNamingStrategy(strategy: OutputNamingStrategy) {
         viewModelScope.launch {
             appContainer.appPrefs.updateOutputNamingStrategy(strategy)

@@ -80,7 +80,7 @@ class LogRepository(
     }
 
     private companion object {
-        const val MAX_LOG_COUNT = 100
-        const val MAX_PERSISTED_COUNT = 400
+        const val MAX_LOG_COUNT = 60
+        const val MAX_PERSISTED_COUNT = 240
     }
 }

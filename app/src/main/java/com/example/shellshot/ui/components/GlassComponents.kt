@@ -10,7 +10,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +33,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,7 +48,7 @@ import kotlin.math.sin
 
 data class GlassBottomBarItem(
     val label: String,
-    val icon: ImageVector,
+    val icon: AppIconId,
 )
 
 /**
@@ -1368,9 +1366,9 @@ fun LegacyLiquidGlassBottomBar(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = item.label,
+                AppIcon(
+                    icon = item.icon,
+                    contentDescription = item.label,
                         modifier = Modifier.size(if (selected) 21.dp else 19.dp),
                         tint = tint,
                     )

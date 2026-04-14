@@ -15,13 +15,9 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Article
-import androidx.compose.material.icons.outlined.DashboardCustomize
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -39,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.shellshot.permissions.SpecialAccessNavigator
 import com.example.shellshot.ui.MainViewModel
 import com.example.shellshot.ui.components.AppBackdrop
+import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.BottomDock
 import com.example.shellshot.ui.components.NavItem
 import com.example.shellshot.ui.screen.HomeScreen
@@ -47,10 +45,10 @@ import com.example.shellshot.ui.screen.SettingsScreen
 import com.example.shellshot.ui.screen.TemplateScreen
 
 private enum class AppTab(val navItem: NavItem) {
-    Home(NavItem(id = "home", label = "首页", icon = Icons.Outlined.Home)),
-    Templates(NavItem(id = "templates", label = "模板", icon = Icons.Outlined.DashboardCustomize)),
-    Settings(NavItem(id = "settings", label = "设置", icon = Icons.Outlined.Settings)),
-    Logs(NavItem(id = "logs", label = "日志", icon = Icons.AutoMirrored.Outlined.Article)),
+    Home(NavItem(id = "home", label = "首页", icon = AppIconId.Home)),
+    Templates(NavItem(id = "templates", label = "模板", icon = AppIconId.Template)),
+    Settings(NavItem(id = "settings", label = "设置", icon = AppIconId.Settings)),
+    Logs(NavItem(id = "logs", label = "日志", icon = AppIconId.Terminal)),
 }
 
 @Composable
@@ -63,6 +61,7 @@ fun ShellShotApp(
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var currentTab by rememberSaveable { mutableStateOf(AppTab.Home) }
+    var templateDetailOpen by rememberSaveable { mutableStateOf(false) }
 
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -101,6 +100,12 @@ fun ShellShotApp(
         }
     }
 
+    LaunchedEffect(currentTab) {
+        if (currentTab != AppTab.Templates) {
+            templateDetailOpen = false
+        }
+    }
+
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -132,7 +137,11 @@ fun ShellShotApp(
         AppTab.Logs.navItem.copy(visible = uiState.settings.debugModeEnabled),
     )
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(if (darkTheme) Color.Black else Color(0xFFEBEDF0)),
+    ) {
         AppBackdrop(modifier = Modifier.fillMaxSize())
 
         AnimatedContent(
@@ -174,6 +183,11 @@ fun ShellShotApp(
                         currentTab = AppTab.Templates
                         viewModel.selectTemplate(it)
                     },
+                    onOpenTemplates = { currentTab = AppTab.Templates },
+                    onOpenSettings = { currentTab = AppTab.Settings },
+                    onOpenLogs = {
+                        currentTab = if (uiState.settings.debugModeEnabled) AppTab.Logs else AppTab.Settings
+                    },
                 )
 
                 AppTab.Templates -> TemplateScreen(
@@ -187,6 +201,7 @@ fun ShellShotApp(
                     onCancelImport = viewModel::cancelTemplateImport,
                     onDismissImportAlert = viewModel::dismissTemplateImportAlert,
                     onCancelPage = { currentTab = AppTab.Home },
+                    onDetailToggle = { templateDetailOpen = it },
                 )
 
                 AppTab.Settings -> SettingsScreen(
@@ -216,6 +231,7 @@ fun ShellShotApp(
                     },
                     onToggleAutoDelete = viewModel::setAutoDeleteOriginal,
                     onToggleMediaStoreFallback = viewModel::setMediaStoreFallbackEnabled,
+                    onOpenBatteryOptimizationSettings = { SpecialAccessNavigator.openBatteryOptimizationSettings(context) },
                 )
 
                 AppTab.Logs -> LogScreen(
@@ -229,6 +245,7 @@ fun ShellShotApp(
             items = dockItems,
             selectedItemId = currentTab.navItem.id,
             darkTheme = darkTheme,
+            hidden = templateDetailOpen,
             modifier = Modifier.align(Alignment.BottomCenter),
             onItemSelected = { itemId ->
                 currentTab = AppTab.entries.firstOrNull { it.navItem.id == itemId } ?: AppTab.Home

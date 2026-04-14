@@ -49,6 +49,7 @@ data class AppSettings(
     val debugModeEnabled: Boolean = false,
     val monitoringEnabled: Boolean = false,
     val mediaStoreFallbackEnabled: Boolean = true,
+    val batteryOptimizationEnabled: Boolean = false,
     val outputNamingStrategy: OutputNamingStrategy = OutputNamingStrategy.Prefix,
     val recentProcessedKeys: List<String> = emptyList(),
     val gamePackageRules: List<String> = defaultGamePackageRules,
@@ -67,6 +68,7 @@ class AppPrefs(
             debugModeEnabled = preferences[Keys.DebugModeEnabled] ?: false,
             monitoringEnabled = preferences[Keys.MonitoringEnabled] ?: false,
             mediaStoreFallbackEnabled = preferences[Keys.MediaStoreFallbackEnabled] ?: true,
+            batteryOptimizationEnabled = preferences[Keys.BatteryOptimizationEnabled] ?: false,
             outputNamingStrategy = OutputNamingStrategy.fromRaw(preferences[Keys.OutputNamingStrategy]),
             recentProcessedKeys = decodeProcessedKeys(preferences[Keys.RecentProcessedKeys]),
             gamePackageRules = decodeGamePackageRules(preferences[Keys.GamePackageRules]),
@@ -115,6 +117,12 @@ class AppPrefs(
     suspend fun updateMediaStoreFallbackEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[Keys.MediaStoreFallbackEnabled] = enabled
+        }
+    }
+
+    suspend fun updateBatteryOptimizationEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.BatteryOptimizationEnabled] = enabled
         }
     }
 
@@ -208,6 +216,8 @@ class AppPrefs(
         val MonitoringEnabled: Preferences.Key<Boolean> = booleanPreferencesKey("monitoring_enabled")
         val MediaStoreFallbackEnabled: Preferences.Key<Boolean> =
             booleanPreferencesKey("media_store_fallback_enabled")
+        val BatteryOptimizationEnabled: Preferences.Key<Boolean> =
+            booleanPreferencesKey("battery_optimization_enabled")
         val OutputNamingStrategy: Preferences.Key<String> = stringPreferencesKey("output_naming_strategy")
         val RecentProcessedKeys: Preferences.Key<String> = stringPreferencesKey("recent_processed_keys")
         val GamePackageRules: Preferences.Key<String> = stringPreferencesKey("game_package_rules")

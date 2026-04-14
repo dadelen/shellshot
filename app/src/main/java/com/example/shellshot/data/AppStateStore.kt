@@ -123,6 +123,6 @@ class AppStateStore {
     }
 
     companion object {
-        private const val MAX_LOG_COUNT = 100
+        private const val MAX_LOG_COUNT = 60
     }
 }

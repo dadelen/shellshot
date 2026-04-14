@@ -1,1 +1,51 @@
+# Build outputs
+build/
+**/build/
+out/
+dist/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Gradle / Kotlin caches
+.gradle/
+.kotlin/
+gradle-app.setting
+
+# Local machine / IDE files
+.idea/
+*.iml
+local.properties
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+null/
+PowerShell 7.6.0/
+
+# Reverse-engineering and reference bundles
 .tools/
+zip/
+UI/
+
+# Android generated artifacts
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystores and secrets
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+.env
+.env.*
+!.env.example

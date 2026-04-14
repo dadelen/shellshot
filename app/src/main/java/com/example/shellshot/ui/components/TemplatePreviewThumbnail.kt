@@ -6,15 +6,10 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.LruCache
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.PhoneIphone
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,8 +17,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -43,7 +36,7 @@ fun TemplatePreviewThumbnail(
     contentDescription: String,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 18.dp,
-    imagePadding: Dp = 8.dp,
+    imagePadding: Dp = 0.dp,
     selected: Boolean = false,
 ) {
     val context = LocalContext.current
@@ -73,28 +66,8 @@ fun TemplatePreviewThumbnail(
     }
 
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(cornerRadius))
-            .background(Color.White.copy(alpha = 0.86f))
-            .border(
-                width = 1.dp,
-                color = if (selected) colors.accentBlue.copy(alpha = 0.2f) else colors.cardStroke,
-                shape = RoundedCornerShape(cornerRadius),
-            ),
+        modifier = modifier,
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.18f),
-                            Color.Transparent,
-                        ),
-                    ),
-                ),
-        )
-
         if (previewBitmap != null) {
             Image(
                 bitmap = previewBitmap!!,
@@ -105,8 +78,8 @@ fun TemplatePreviewThumbnail(
                 contentScale = ContentScale.Fit,
             )
         } else {
-            Icon(
-                imageVector = Icons.Rounded.PhoneIphone,
+            AppIcon(
+                icon = AppIconId.Template,
                 contentDescription = contentDescription,
                 modifier = Modifier.align(Alignment.Center),
                 tint = if (selected) colors.accentBlue else colors.textTertiary,
@@ -121,7 +94,7 @@ fun TemplatePreviewThumbnail(
     contentDescription: String,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 18.dp,
-    imagePadding: Dp = 8.dp,
+    imagePadding: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val colors = MaterialTheme.shellShotTokens.colors
@@ -150,28 +123,8 @@ fun TemplatePreviewThumbnail(
     }
 
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(cornerRadius))
-            .background(Color.White.copy(alpha = 0.9f))
-            .border(
-                width = 1.dp,
-                color = colors.cardStroke,
-                shape = RoundedCornerShape(cornerRadius),
-            ),
+        modifier = modifier,
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.2f),
-                            Color.Transparent,
-                        ),
-                    ),
-                ),
-        )
-
         if (previewBitmap != null) {
             Image(
                 bitmap = previewBitmap!!,
@@ -182,8 +135,8 @@ fun TemplatePreviewThumbnail(
                 contentScale = ContentScale.Fit,
             )
         } else {
-            Icon(
-                imageVector = Icons.Rounded.PhoneIphone,
+            AppIcon(
+                icon = AppIconId.Template,
                 contentDescription = contentDescription,
                 modifier = Modifier.align(Alignment.Center),
                 tint = colors.textTertiary,

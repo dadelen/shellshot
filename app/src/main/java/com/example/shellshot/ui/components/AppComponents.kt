@@ -39,16 +39,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.PhoneIphone
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SwipeToDismissBox
@@ -75,7 +67,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -716,7 +707,7 @@ fun AppDivider(
 
 @Composable
 fun AppIconPlate(
-    icon: ImageVector,
+    icon: AppIconId,
     tint: Color,
     modifier: Modifier = Modifier,
 ) {
@@ -741,8 +732,8 @@ fun AppIconPlate(
                 shape = RoundedCornerShape(tokens.radii.iconPlate),
             ),
     ) {
-        Icon(
-            imageVector = icon,
+        AppIcon(
+            icon = icon,
             contentDescription = null,
             modifier = Modifier.align(Alignment.Center),
             tint = tint,
@@ -917,8 +908,8 @@ fun TemplateCard(
                         .padding(end = 22.dp),
                     contentAlignment = Alignment.CenterEnd,
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Delete,
+                    AppIcon(
+                        icon = AppIconId.Delete,
                         contentDescription = "删除模板",
                         tint = Color.White,
                     )
@@ -936,7 +927,7 @@ fun TemplateCard(
 
 @Composable
 fun SettingActionRow(
-    icon: ImageVector,
+    icon: AppIconId,
     title: String,
     description: String,
     modifier: Modifier = Modifier,
@@ -987,8 +978,8 @@ fun SettingActionRow(
                 color = statusTone.iconTint(colors),
             )
         }
-        Icon(
-            imageVector = Icons.Rounded.ChevronRight,
+        AppIcon(
+            icon = AppIconId.ChevronRight,
             contentDescription = null,
             tint = colors.textTertiary,
         )
@@ -997,7 +988,7 @@ fun SettingActionRow(
 
 @Composable
 fun SettingToggleRow(
-    icon: ImageVector,
+    icon: AppIconId,
     title: String,
     description: String,
     checked: Boolean,
@@ -1457,8 +1448,8 @@ fun LiquidGlassBottomBar(
                         animationSpec = tween(style.motionDurationMillis, easing = PremiumMotionEasing),
                         label = "liquid-glass-bottom-bar-icon-size-$index",
                     )
-                    Icon(
-                        imageVector = item.icon,
+                    AppIcon(
+                        icon = item.icon,
                         contentDescription = item.label,
                         modifier = Modifier
                             .size(iconSize)
@@ -1512,10 +1503,10 @@ private fun LiquidGlassBottomBarPreview() {
     ShellShotTheme {
         var selectedIndex by remember { mutableIntStateOf(0) }
         val previewItems = listOf(
-            GlassBottomBarItem("首页", Icons.Rounded.Home),
-            GlassBottomBarItem("模板", Icons.Rounded.PhoneIphone),
-            GlassBottomBarItem("设置", Icons.Rounded.Settings),
-            GlassBottomBarItem("日志", Icons.Rounded.BugReport),
+            GlassBottomBarItem("首页", AppIconId.Home),
+            GlassBottomBarItem("模板", AppIconId.Template),
+            GlassBottomBarItem("设置", AppIconId.Settings),
+            GlassBottomBarItem("日志", AppIconId.Terminal),
         )
 
         Box(

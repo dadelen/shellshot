@@ -28,12 +28,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.PhoneIphone
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,7 +54,6 @@ import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -77,7 +70,7 @@ import kotlin.math.roundToInt
 data class NavItem(
     val id: String,
     val label: String,
-    val icon: ImageVector,
+    val icon: AppIconId,
     val visible: Boolean = true,
 )
 
@@ -503,8 +496,8 @@ fun AppleLiquidNavBar(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            Icon(
-                                imageVector = item.icon,
+                            AppIcon(
+                                icon = item.icon,
                                 contentDescription = item.label,
                                 modifier = Modifier
                                     .size(metrics.iconSize)
@@ -569,10 +562,10 @@ private fun AppleLiquidNavBarPreview() {
     ShellShotTheme {
         var selectedIndex by remember { mutableIntStateOf(0) }
         val previewItems = listOf(
-            NavItem(id = "home", label = "Home", icon = Icons.Rounded.Home),
-            NavItem(id = "templates", label = "Templates", icon = Icons.Rounded.PhoneIphone),
-            NavItem(id = "settings", label = "Settings", icon = Icons.Rounded.Settings),
-            NavItem(id = "logs", label = "Logs", icon = Icons.Rounded.BugReport),
+            NavItem(id = "home", label = "Home", icon = AppIconId.Home),
+            NavItem(id = "templates", label = "Templates", icon = AppIconId.Template),
+            NavItem(id = "settings", label = "Settings", icon = AppIconId.Settings),
+            NavItem(id = "logs", label = "Logs", icon = AppIconId.Terminal),
         )
 
         Box(

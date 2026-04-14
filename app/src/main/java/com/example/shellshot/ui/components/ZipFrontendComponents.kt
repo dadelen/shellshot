@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +43,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -191,7 +189,7 @@ fun ZipCountPill(
 
 @Composable
 fun ZipIconPlate(
-    icon: ImageVector,
+    icon: AppIconId,
     tint: Color,
     backgroundColor: Color,
     modifier: Modifier = Modifier,
@@ -214,8 +212,8 @@ fun ZipIconPlate(
             .border(1.dp, tint.copy(alpha = 0.12f), plateShape),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
+        AppIcon(
+            icon = icon,
             contentDescription = null,
             tint = tint,
             modifier = Modifier.size(iconSize),
@@ -225,7 +223,7 @@ fun ZipIconPlate(
 
 @Composable
 fun ZipGlassIconButton(
-    icon: ImageVector,
+    icon: AppIconId,
     darkTheme: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -252,8 +250,8 @@ fun ZipGlassIconButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
+        AppIcon(
+            icon = icon,
             contentDescription = null,
             tint = if (darkTheme) Color(0xFFD4D4D8) else Color(0xFF52525B),
             modifier = Modifier.size(20.dp),
