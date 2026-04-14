@@ -242,16 +242,15 @@ fun TemplateScreen(
                                 TemplateCard(
                                     template = activeTemplate,
                                     isActive = true,
-                                    darkTheme = darkTheme,
-                                    modifier = Modifier
-                                        .animateItem()
-                                        .offset(y = deleteOffsetY)
-                                        .alpha(deleteAlpha * sourceAlpha)
-                                        .scale(deleteScale),
-                                    onClick = { openDetail(activeTemplate) },
-                                    onView = { openDetail(activeTemplate) },
-                                    onCenterYChanged = { centerY -> templateCenterYById[activeTemplate.id] = centerY },
-                                )
+                            darkTheme = darkTheme,
+                            modifier = Modifier
+                                .animateItem()
+                                .offset(y = deleteOffsetY)
+                                .alpha(deleteAlpha * sourceAlpha)
+                                .scale(deleteScale),
+                            onClick = { openDetail(activeTemplate) },
+                            onCenterYChanged = { centerY -> templateCenterYById[activeTemplate.id] = centerY },
+                        )
                             }
                         } else {
                             item(key = "empty-current") {
@@ -277,7 +276,7 @@ fun TemplateScreen(
                             itemsIndexed(otherTemplates, key = { _, item -> item.id }) { index, template ->
                                 val isDeleting = deletingTemplateId == template.id
                                 val stackOffsetY by animateDpAsState(
-                                    targetValue = if (index > 0) (-10 * index).dp else 0.dp,
+                                    targetValue = if (index > 0) (-18 * index).dp else 0.dp,
                                     animationSpec = spring(stiffness = 360f, dampingRatio = 0.86f),
                                     label = "template-stack-offset-${template.id}",
                                 )
@@ -455,7 +454,7 @@ private fun TemplateDetailOverlay(
 
         Box(
             modifier = Modifier
-                .fillMaxWidth(0.88f)
+                .fillMaxWidth(0.80f)
                 .offset(y = cardOffsetY)
                 .graphicsLayer {
                     alpha = cardAlpha
@@ -470,7 +469,7 @@ private fun TemplateDetailOverlay(
                     color = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.9f),
                     shape = RoundedCornerShape(48.dp),
                 )
-                .padding(32.dp)
+                .padding(24.dp)
                 .clickable(enabled = false) {},
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -507,25 +506,25 @@ private fun TemplateDetailOverlay(
                         contentDescription = template.name,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(220.dp)
+                            .height(150.dp)
                             .scale(if (visible) 1f else 0.96f),
-                        cornerRadius = 28.dp,
+                        cornerRadius = 24.dp,
                         imagePadding = 0.dp,
                         selected = template.id == activeTemplateId,
                     )
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
                     Text(
                         text = template.name,
-                        fontSize = 24.sp,
-                        lineHeight = 29.sp,
+                        fontSize = 21.sp,
+                        lineHeight = 25.sp,
                         fontWeight = FontWeight.Black,
                         color = if (darkTheme) Color.White else Color.Black,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(22.dp))
 
                     DetailRow(
                         label = "分辨率",
@@ -538,15 +537,15 @@ private fun TemplateDetailOverlay(
                         darkTheme = darkTheme,
                     )
 
-                    Spacer(modifier = Modifier.height(40.dp))
+                    Spacer(modifier = Modifier.height(26.dp))
 
                     Button(
                         onClick = onApply,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(60.dp),
+                            .height(52.dp),
                         enabled = template.id != activeTemplateId,
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(18.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = TemplateBlue,
                             disabledContainerColor = Color(0xFFE5E5EA),
@@ -556,7 +555,7 @@ private fun TemplateDetailOverlay(
                     ) {
                         Text(
                             text = if (template.id == activeTemplateId) "当前使用中" else "应用模板",
-                            fontSize = 18.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Black,
                         )
                     }
@@ -613,16 +612,16 @@ private fun TemplateCard(
     darkTheme: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
-    onView: (() -> Unit)? = null,
     onCenterYChanged: (Dp) -> Unit = {},
     stackIndex: Int? = null,
     stackCount: Int = 0,
 ) {
     val shape = RoundedCornerShape(40.dp)
     val density = LocalDensity.current
+    val stacked = stackIndex != null
     val stackDepth = stackIndex?.coerceAtMost(5) ?: 0
-    val stackInset = if (stackIndex != null) (stackDepth * 2).dp else 0.dp
-    val stackScale = if (stackIndex != null) 1f - (stackDepth * 0.004f) else 1f
+    val stackInset = if (stacked) (stackDepth * 2).dp else 0.dp
+    val stackScale = if (stacked) 1f - (stackDepth * 0.003f) else 1f
     val stackSurface = when {
         isActive -> if (darkTheme) Color(0xFF1C1C1E) else Color.White
         darkTheme -> Color(0xFF1C1C1E).copy(alpha = 1f - stackDepth * 0.035f)
@@ -640,10 +639,11 @@ private fun TemplateCard(
             .fillMaxWidth()
             .padding(horizontal = stackInset)
             .scale(pressScale * stackScale)
+            .height(if (stacked) 86.dp else 104.dp)
             .shadow(
-                elevation = if (stackIndex != null) (18 - stackDepth).dp else 12.dp,
+                elevation = if (stacked) (22 - stackDepth).dp else 12.dp,
                 shape = shape,
-                spotColor = Color.Black.copy(alpha = if (darkTheme) 0.30f else 0.09f),
+                spotColor = Color.Black.copy(alpha = if (darkTheme) 0.34f else 0.13f),
             )
             .clip(shape)
             .background(stackSurface)
@@ -668,7 +668,7 @@ private fun TemplateCard(
                 onCenterYChanged(with(density) { centerY.toDp() })
             },
     ) {
-        if (stackIndex != null) {
+        if (stacked) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -677,8 +677,8 @@ private fun TemplateCard(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = if (darkTheme) 0.12f else 0.038f),
-                                Color.Black.copy(alpha = if (darkTheme) 0.04f else 0.012f),
+                                Color.Black.copy(alpha = if (darkTheme) 0.16f else 0.055f),
+                                Color.Black.copy(alpha = if (darkTheme) 0.05f else 0.018f),
                                 Color.Transparent,
                             ),
                         ),
@@ -703,58 +703,62 @@ private fun TemplateCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(horizontal = if (stacked) 24.dp else 20.dp, vertical = if (stacked) 16.dp else 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(64.dp),
+                    .size(if (stacked) 48.dp else 64.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 TemplatePreviewThumbnail(
                     previewPath = template.previewAsset,
                     contentDescription = template.name,
                     modifier = Modifier.fillMaxSize(),
-                    cornerRadius = 14.dp,
+                    cornerRadius = if (stacked) 12.dp else 14.dp,
                     imagePadding = 0.dp,
                     selected = isActive,
                 )
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(if (stacked) 18.dp else 16.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            if (stacked) {
                 Text(
                     text = template.name,
                     fontSize = 17.sp,
-                    lineHeight = 22.sp,
+                    lineHeight = 21.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (darkTheme) Color.White else Color.Black,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(bottom = 8.dp),
+                    modifier = Modifier.weight(1f),
                 )
                 Text(
                     text = templateResolutionLabel(template),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TemplateBlue,
+                    color = if (darkTheme) Color(0xFFA1A1AA) else Color(0xFF9CA3AF),
                     maxLines = 1,
                 )
-            }
-            if (isActive) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7))
-                        .clickable { (onView ?: onClick).invoke() }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
+            } else {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "查看",
-                        fontSize = 12.sp,
+                        text = template.name,
+                        fontSize = 17.sp,
+                        lineHeight = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (darkTheme) Color.White else Color.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    Text(
+                        text = templateResolutionLabel(template),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TemplateBlue,
+                        maxLines = 1,
                     )
                 }
             }

@@ -43,6 +43,9 @@ import com.example.shellshot.ui.screen.HomeScreen
 import com.example.shellshot.ui.screen.LogScreen
 import com.example.shellshot.ui.screen.SettingsScreen
 import com.example.shellshot.ui.screen.TemplateScreen
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 private enum class AppTab(val navItem: NavItem) {
     Home(NavItem(id = "home", label = "首页", icon = AppIconId.Home)),
@@ -62,6 +65,20 @@ fun ShellShotApp(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var currentTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     var templateDetailOpen by rememberSaveable { mutableStateOf(false) }
+    val appBackdrop = rememberLayerBackdrop()
+    val controlBackdrop = rememberCanvasBackdrop {
+        drawRect(if (darkTheme) Color.Black else Color(0xFFF2F2F7))
+        drawCircle(
+            color = Color(0xFF007AFF).copy(alpha = if (darkTheme) 0.06f else 0.08f),
+            radius = size.minDimension * 0.55f,
+            center = androidx.compose.ui.geometry.Offset(size.width * 0.78f, size.height * 0.18f),
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = if (darkTheme) 0.03f else 0.42f),
+            radius = size.minDimension * 0.65f,
+            center = androidx.compose.ui.geometry.Offset(size.width * 0.18f, size.height * 0.72f),
+        )
+    }
 
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -142,102 +159,107 @@ fun ShellShotApp(
             .fillMaxSize()
             .background(if (darkTheme) Color.Black else Color(0xFFEBEDF0)),
     ) {
-        AppBackdrop(modifier = Modifier.fillMaxSize())
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .layerBackdrop(appBackdrop),
+        ) {
+            AppBackdrop(modifier = Modifier.fillMaxSize())
 
-        AnimatedContent(
-            targetState = currentTab,
-            label = "zip_frontend_crossfade",
-            transitionSpec = {
-                (
-                    fadeIn(
-                        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
-                    ) + slideInVertically(
-                        initialOffsetY = { it / 8 },
-                        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
-                    ) + scaleIn(
-                        initialScale = 0.98f,
-                        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
-                    )
-                ).togetherWith(
-                    fadeOut(
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                    ) + slideOutVertically(
-                        targetOffsetY = { -it / 8 },
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                    ) + scaleOut(
-                        targetScale = 0.98f,
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                    )
-                ).using(SizeTransform(clip = false))
-            },
-            modifier = Modifier.fillMaxSize(),
-        ) { tab ->
-            when (tab) {
-                AppTab.Home -> HomeScreen(
-                    modifier = Modifier.fillMaxSize(),
-                    uiState = uiState,
-                    darkTheme = darkTheme,
-                    onToggleDarkTheme = onToggleDarkTheme,
-                    onToggleMonitoring = onToggleMonitoring,
-                    onSelectTemplate = {
-                        currentTab = AppTab.Templates
-                        viewModel.selectTemplate(it)
-                    },
-                    onOpenTemplates = { currentTab = AppTab.Templates },
-                    onOpenSettings = { currentTab = AppTab.Settings },
-                    onOpenLogs = {
-                        currentTab = if (uiState.settings.debugModeEnabled) AppTab.Logs else AppTab.Settings
-                    },
-                )
-
-                AppTab.Templates -> TemplateScreen(
-                    modifier = Modifier.fillMaxSize(),
-                    uiState = uiState,
-                    onSelectTemplate = viewModel::selectTemplate,
-                    onUploadTemplateImage = { uploadTemplateImageLauncher.launch(arrayOf("image/*")) },
-                    onDeleteTemplate = viewModel::deleteTemplate,
-                    onUpdateImportName = viewModel::updateTemplateImportName,
-                    onConfirmImport = viewModel::confirmTemplateImport,
-                    onCancelImport = viewModel::cancelTemplateImport,
-                    onDismissImportAlert = viewModel::dismissTemplateImportAlert,
-                    onCancelPage = { currentTab = AppTab.Home },
-                    onDetailToggle = { templateDetailOpen = it },
-                )
-
-                AppTab.Settings -> SettingsScreen(
-                    modifier = Modifier.fillMaxSize(),
-                    uiState = uiState,
-                    onRequestNotifications = {
-                        if (uiState.permissionSnapshot.notificationsGranted) {
-                            SpecialAccessNavigator.openNotificationSettings(context)
-                        } else {
-                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                    },
-                    onRequestMediaAccess = {
-                        mediaAccessLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.READ_MEDIA_IMAGES,
-                                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
-                            ),
+            AnimatedContent(
+                targetState = currentTab,
+                label = "zip_frontend_crossfade",
+                transitionSpec = {
+                    (
+                        fadeIn(
+                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                        ) + slideInVertically(
+                            initialOffsetY = { it / 8 },
+                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                        ) + scaleIn(
+                            initialScale = 0.98f,
+                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
                         )
-                    },
-                    onOpenNotificationSettings = { SpecialAccessNavigator.openNotificationSettings(context) },
-                    onOpenManageAllFilesSettings = { SpecialAccessNavigator.openManageAllFilesSettings(context) },
-                    onToggleDebugMode = viewModel::setDebugModeEnabled,
-                    onRefreshScreenshotDirectories = viewModel::refreshScreenshotDirectoryRecommendations,
-                    onUpdateScreenshotDirectory = { relativePath ->
-                        viewModel.updateScreenshotRelativePath(context, relativePath)
-                    },
-                    onToggleAutoDelete = viewModel::setAutoDeleteOriginal,
-                    onToggleMediaStoreFallback = viewModel::setMediaStoreFallbackEnabled,
-                    onOpenBatteryOptimizationSettings = { SpecialAccessNavigator.openBatteryOptimizationSettings(context) },
-                )
+                    ).togetherWith(
+                        fadeOut(
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        ) + slideOutVertically(
+                            targetOffsetY = { -it / 8 },
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        ) + scaleOut(
+                            targetScale = 0.98f,
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        )
+                    ).using(SizeTransform(clip = false))
+                },
+                modifier = Modifier.fillMaxSize(),
+            ) { tab ->
+                when (tab) {
+                    AppTab.Home -> HomeScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        uiState = uiState,
+                        darkTheme = darkTheme,
+                        liquidBackdrop = controlBackdrop,
+                        onToggleDarkTheme = onToggleDarkTheme,
+                        onToggleMonitoring = onToggleMonitoring,
+                        onSelectTemplate = {
+                            currentTab = AppTab.Templates
+                            viewModel.selectTemplate(it)
+                        },
+                        onOpenTemplates = { currentTab = AppTab.Templates },
+                        onOpenSettings = { currentTab = AppTab.Settings },
+                    )
 
-                AppTab.Logs -> LogScreen(
-                    modifier = Modifier.fillMaxSize(),
-                    logs = uiState.logs,
-                )
+                    AppTab.Templates -> TemplateScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        uiState = uiState,
+                        onSelectTemplate = viewModel::selectTemplate,
+                        onUploadTemplateImage = { uploadTemplateImageLauncher.launch(arrayOf("image/*")) },
+                        onDeleteTemplate = viewModel::deleteTemplate,
+                        onUpdateImportName = viewModel::updateTemplateImportName,
+                        onConfirmImport = viewModel::confirmTemplateImport,
+                        onCancelImport = viewModel::cancelTemplateImport,
+                        onDismissImportAlert = viewModel::dismissTemplateImportAlert,
+                        onCancelPage = { currentTab = AppTab.Home },
+                        onDetailToggle = { templateDetailOpen = it },
+                    )
+
+                    AppTab.Settings -> SettingsScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        uiState = uiState,
+                        liquidBackdrop = controlBackdrop,
+                        onRequestNotifications = {
+                            if (uiState.permissionSnapshot.notificationsGranted) {
+                                SpecialAccessNavigator.openNotificationSettings(context)
+                            } else {
+                                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        },
+                        onRequestMediaAccess = {
+                            mediaAccessLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.READ_MEDIA_IMAGES,
+                                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                                ),
+                            )
+                        },
+                        onOpenNotificationSettings = { SpecialAccessNavigator.openNotificationSettings(context) },
+                        onOpenManageAllFilesSettings = { SpecialAccessNavigator.openManageAllFilesSettings(context) },
+                        onToggleDebugMode = viewModel::setDebugModeEnabled,
+                        onRefreshScreenshotDirectories = viewModel::refreshScreenshotDirectoryRecommendations,
+                        onUpdateScreenshotDirectory = { relativePath ->
+                            viewModel.updateScreenshotRelativePath(context, relativePath)
+                        },
+                        onToggleAutoDelete = viewModel::setAutoDeleteOriginal,
+                        onToggleMediaStoreFallback = viewModel::setMediaStoreFallbackEnabled,
+                        onOpenBatteryOptimizationSettings = { SpecialAccessNavigator.openBatteryOptimizationSettings(context) },
+                    )
+
+                    AppTab.Logs -> LogScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        logs = uiState.logs,
+                    )
+                }
             }
         }
 
@@ -245,6 +267,7 @@ fun ShellShotApp(
             items = dockItems,
             selectedItemId = currentTab.navItem.id,
             darkTheme = darkTheme,
+            liquidBackdrop = appBackdrop,
             hidden = templateDetailOpen,
             modifier = Modifier.align(Alignment.BottomCenter),
             onItemSelected = { itemId ->

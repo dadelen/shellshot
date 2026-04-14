@@ -38,11 +38,13 @@ import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.LiquidGlassSwitch
 import com.example.shellshot.ui.components.ZipStaggeredReveal
+import com.kyant.backdrop.Backdrop
 
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
     uiState: MainUiState,
+    liquidBackdrop: Backdrop,
     onRequestNotifications: () -> Unit,
     onRequestMediaAccess: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
@@ -123,6 +125,7 @@ fun SettingsScreen(
                         icon = AppIconId.ImageOff,
                         title = "媒体兜底",
                         checked = uiState.settings.mediaStoreFallbackEnabled,
+                        liquidBackdrop = liquidBackdrop,
                         onCheckedChange = onToggleMediaStoreFallback,
                         showDivider = true,
                     )
@@ -131,6 +134,7 @@ fun SettingsScreen(
                         icon = AppIconId.Delete,
                         title = "处理后删除原图",
                         checked = uiState.settings.autoDeleteOriginal,
+                        liquidBackdrop = liquidBackdrop,
                         onCheckedChange = onToggleAutoDelete,
                         showDivider = true,
                     )
@@ -139,6 +143,7 @@ fun SettingsScreen(
                         icon = AppIconId.Bug,
                         title = "调试模式",
                         checked = uiState.settings.debugModeEnabled,
+                        liquidBackdrop = liquidBackdrop,
                         onCheckedChange = onToggleDebugMode,
                         showDivider = false,
                     )
@@ -232,6 +237,7 @@ private fun SettingToggle(
     icon: AppIconId,
     title: String,
     checked: Boolean,
+    liquidBackdrop: Backdrop,
     onCheckedChange: (Boolean) -> Unit,
     showDivider: Boolean,
 ) {
@@ -254,8 +260,9 @@ private fun SettingToggle(
             LiquidGlassSwitch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
-                width = 56.dp,
-                height = 32.dp,
+                backdrop = liquidBackdrop,
+                width = 64.dp,
+                height = 28.dp,
             )
         }
         if (showDivider) GroupDivider(darkTheme)
@@ -273,7 +280,7 @@ private fun ScreenshotDirectoryCard(
 ) {
     val titleColor = if (darkTheme) Color.White else Color.Black
     val secondaryColor = if (darkTheme) Color(0xFFA1A1AA) else Color.Gray
-    val amber = Color(0xFFF59E0B)
+    val accent = Color(0xFF007AFF)
 
     Column(
         modifier = Modifier
@@ -296,7 +303,7 @@ private fun ScreenshotDirectoryCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 24.dp),
         ) {
-            AmberIconPlate(icon = AppIconId.Edit, darkTheme = darkTheme, amber = amber)
+            AccentIconPlate(icon = AppIconId.Edit, darkTheme = darkTheme, accent = accent)
             Spacer(modifier = Modifier.width(16.dp))
             Text(
                 text = "截图目录",
@@ -337,7 +344,7 @@ private fun ScreenshotDirectoryCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AmberIconPlate(icon = AppIconId.Sparkles, darkTheme = darkTheme, amber = amber)
+                AccentIconPlate(icon = AppIconId.Sparkles, darkTheme = darkTheme, accent = accent)
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = "自动推荐",
@@ -445,19 +452,23 @@ private fun DirectoryRecommendationBox(
 }
 
 @Composable
-private fun AmberIconPlate(icon: AppIconId, darkTheme: Boolean, amber: Color) {
+private fun AccentIconPlate(icon: AppIconId, darkTheme: Boolean, accent: Color) {
     Box(
         modifier = Modifier
-            .size(36.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (darkTheme) amber.copy(alpha = 0.10f) else Color(0xFFFFFBEB))
-            .border(0.5.dp, amber.copy(alpha = 0.20f), RoundedCornerShape(12.dp)),
+            .size(32.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7))
+            .border(
+                width = 0.5.dp,
+                color = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E5EA),
+                shape = RoundedCornerShape(8.dp),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         AppIcon(
             icon = icon,
             contentDescription = null,
-            tint = amber,
+            tint = if (darkTheme) Color.White else accent,
             modifier = Modifier.size(18.dp),
         )
     }

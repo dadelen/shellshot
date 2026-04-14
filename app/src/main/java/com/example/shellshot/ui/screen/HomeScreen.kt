@@ -37,8 +37,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,6 +67,7 @@ import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.TemplatePreviewThumbnail
 import com.example.shellshot.utils.TimeUtils
+import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.delay
 
 @Composable
@@ -76,17 +75,16 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     uiState: MainUiState,
     darkTheme: Boolean,
+    liquidBackdrop: Backdrop,
     onToggleDarkTheme: () -> Unit,
     onToggleMonitoring: (Boolean) -> Unit,
     onSelectTemplate: (String) -> Unit,
     onOpenTemplates: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenLogs: () -> Unit,
 ) {
     val pageDark = darkTheme
     var isTransitioning by remember { mutableStateOf(false) }
     var previousDark by remember { mutableStateOf(darkTheme) }
-    var targetDark by remember { mutableStateOf(darkTheme) }
 
     val scale by animateFloatAsState(
         targetValue = if (isTransitioning) 1.02f else 1f,
@@ -121,13 +119,13 @@ fun HomeScreen(
         HomeContent(
             uiState = uiState,
             isDark = pageDark,
+            liquidBackdrop = liquidBackdrop,
             onToggleTheme = {
                 onToggleDarkTheme()
             },
             onToggleMonitoring = onToggleMonitoring,
             onOpenTemplates = onOpenTemplates,
             onOpenSettings = onOpenSettings,
-            onOpenLogs = onOpenLogs,
             onSelectTemplate = onSelectTemplate,
             modifier = Modifier.alpha(contentAlpha),
         )
@@ -138,11 +136,11 @@ fun HomeScreen(
 private fun HomeContent(
     uiState: MainUiState,
     isDark: Boolean,
+    liquidBackdrop: Backdrop,
     onToggleTheme: () -> Unit,
     onToggleMonitoring: (Boolean) -> Unit,
     onOpenTemplates: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenLogs: () -> Unit,
     onSelectTemplate: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -208,6 +206,7 @@ private fun HomeContent(
             StatusCard(
                 uiState = uiState,
                 isDark = isDark,
+                liquidBackdrop = liquidBackdrop,
                 onToggleMonitoring = onToggleMonitoring,
                 onOpenSettings = onOpenSettings,
             )
@@ -262,6 +261,7 @@ private fun StaggeredItem(
 private fun StatusCard(
     uiState: MainUiState,
     isDark: Boolean,
+    liquidBackdrop: Backdrop,
     onToggleMonitoring: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -331,27 +331,26 @@ private fun StatusCard(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Button(
-                onClick = { onToggleMonitoring(!monitoringEnabled) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (monitoringEnabled) Color(0xFFFF3B30) else if (isDark) Color.White else Color.Black,
-                ),
-                shape = RoundedCornerShape(20.dp),
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                    .height(60.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (isDark) Color.White else Color.Black)
+                    .clickable { onToggleMonitoring(!monitoringEnabled) },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 AppIcon(
                     icon = if (monitoringEnabled) AppIconId.Close else AppIconId.Play,
                     contentDescription = null,
-                    tint = if (isDark || monitoringEnabled) Color.Black else Color.White,
+                    tint = if (isDark) Color.Black else Color.White,
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (monitoringEnabled) "停止监听服务" else "启动监听服务",
-                    color = if (isDark || monitoringEnabled) Color.Black else Color.White,
+                    color = if (isDark) Color.Black else Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Black,
                 )
@@ -363,6 +362,7 @@ private fun StatusCard(
                 title = "权限设置",
                 icon = AppIconId.Settings,
                 isDark = isDark,
+                liquidBackdrop = liquidBackdrop,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onOpenSettings,
             )
@@ -375,33 +375,32 @@ private fun SmallActionButton(
     title: String,
     icon: AppIconId,
     isDark: Boolean,
+    liquidBackdrop: Backdrop,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Box(
+    Row(
         modifier = modifier
             .height(60.dp)
             .clip(RoundedCornerShape(20.dp))
-            .background(if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF9F9FB))
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        contentAlignment = Alignment.Center,
+            .background(if (isDark) Color.White.copy(alpha = 0.06f) else Color(0xFFF5F5F7))
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(
-                icon = icon,
-                contentDescription = null,
-                tint = if (isDark) Color.LightGray else Color.DarkGray,
-                modifier = Modifier.size(20.dp).alpha(0.7f),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (isDark) Color.LightGray else Color.DarkGray,
-            )
-        }
+        AppIcon(
+            icon = icon,
+            contentDescription = null,
+            tint = if (isDark) Color.LightGray else Color.DarkGray,
+            modifier = Modifier.size(20.dp).alpha(0.7f),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = title,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isDark) Color.LightGray else Color.DarkGray,
+        )
     }
 }
 
