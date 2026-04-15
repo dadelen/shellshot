@@ -148,6 +148,10 @@ class ShellComposer(
             canvas = canvas,
             frameBitmap = frameBitmap,
             outputSize = outputSize,
+            templateTopFeature = templateTopFeature,
+            sourceTopFeature = sourceTopFeature,
+            contentDrawRect = contentDrawRect,
+            sourceBitmap = sourceBitmap,
         )
         if (template.debugDrawGuides) {
             drawDebugGuides(
@@ -778,7 +782,45 @@ class ShellComposer(
         canvas: Canvas,
         frameBitmap: Bitmap,
         outputSize: OutputSize,
+        templateTopFeature: TopFeatureAnchor? = null,
+        sourceTopFeature: TopFeatureAnchor? = null,
+        contentDrawRect: RectF? = null,
+        sourceBitmap: Bitmap? = null,
     ) {
+        val sourceHasTopFeature = sourceTopFeature?.type == TopFeatureType.ISLAND ||
+            sourceTopFeature?.type == TopFeatureType.PUNCH_HOLE
+        if (sourceHasTopFeature && templateTopFeature != null && contentDrawRect != null && sourceBitmap != null) {
+            val frameLayer = Bitmap.createBitmap(
+                outputSize.width,
+                outputSize.height,
+                Bitmap.Config.ARGB_8888,
+            )
+            val frameCanvas = Canvas(frameLayer)
+            try {
+                frameCanvas.drawBitmap(
+                    frameBitmap,
+                    null,
+                    RectF(0f, 0f, outputSize.width.toFloat(), outputSize.height.toFloat()),
+                    createBitmapPaint(),
+                )
+                val sourceFeatureInOutput = sourceTopFeature.mapFromSourceToOutput(
+                    contentDrawRect = contentDrawRect,
+                    sourceBitmap = sourceBitmap,
+                )
+                clearTemplateTopFeatureOverlay(
+                    canvas = frameCanvas,
+                    templateTopFeature = templateTopFeature,
+                    sourceTopFeatureInOutput = sourceFeatureInOutput,
+                )
+                canvas.drawBitmap(frameLayer, 0f, 0f, null)
+            } finally {
+                if (!frameLayer.isRecycled) {
+                    frameLayer.recycle()
+                }
+            }
+            return
+        }
+
         // Frame is always drawn last so bezel, cutout, and hardware details sit above the screenshot layer.
         canvas.drawBitmap(
             frameBitmap,
@@ -786,6 +828,27 @@ class ShellComposer(
             RectF(0f, 0f, outputSize.width.toFloat(), outputSize.height.toFloat()),
             createBitmapPaint(),
         )
+    }
+
+    private fun clearTemplateTopFeatureOverlay(
+        canvas: Canvas,
+        templateTopFeature: TopFeatureAnchor,
+        sourceTopFeatureInOutput: TopFeatureAnchor,
+    ) {
+        val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+            blendMode = BlendMode.CLEAR
+            style = Paint.Style.FILL
+        }
+        val clearRect = templateTopFeature
+            .unionWith(sourceTopFeatureInOutput)
+            .outset(TOP_FEATURE_FRAME_CLEAR_BLEED_PX)
+            .alignToPixel()
+        val radius = when (sourceTopFeatureInOutput.type) {
+            TopFeatureType.ISLAND -> clearRect.height() / 2f
+            TopFeatureType.PUNCH_HOLE -> maxOf(clearRect.width(), clearRect.height()) / 2f
+            TopFeatureType.NONE -> clearRect.height() / 2f
+        }
+        canvas.drawRoundRect(clearRect, radius, radius, clearPaint)
     }
 
     private fun resolveOutputSize(
@@ -1108,6 +1171,7 @@ class ShellComposer(
         const val TOP_FEATURE_MIN_SIZE_PX = 8
         const val TOP_FEATURE_DARK_LUMINANCE = 72f
         const val TOP_FEATURE_MAX_CHANNEL_SPREAD = 42
+        const val TOP_FEATURE_FRAME_CLEAR_BLEED_PX = 3f
         const val DEFAULT_MASK_BLEED_RATIO = 0.0012f
         const val MIN_MASK_BLEED_PX = 1f
         const val MAX_MASK_BLEED_PX = 2f
@@ -1320,6 +1384,13 @@ private fun TopFeatureAnchor.toRectF(): RectF {
         centerX + width / 2f,
         centerY + height / 2f,
     )
+}
+
+private fun TopFeatureAnchor.unionWith(other: TopFeatureAnchor): RectF {
+    val first = toRectF()
+    val second = other.toRectF()
+    first.union(second)
+    return first
 }
 
 private data class OutputSizeCompat(

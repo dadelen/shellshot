@@ -13,6 +13,26 @@
   },
   "cornerRadius": 52,
   "screenMaskBitmap": "templates/center_hole_black_phone/screen_mask.png",
+  "templateTopFeature": {
+    "type": "PUNCH_HOLE",
+    "centerX": 498,
+    "centerY": 189,
+    "width": 36,
+    "height": 36,
+    "confidence": 1.0
+  },
+  "cutouts": [
+    {
+      "rect": {
+        "left": 478,
+        "top": 169,
+        "right": 518,
+        "bottom": 209
+      },
+      "featherPx": 0.5
+    }
+  ],
+  "contentOverscanPx": 2.5,
   "backgroundColor": "#00000000",
   "scaleMode": "CENTER_CROP"
 }
