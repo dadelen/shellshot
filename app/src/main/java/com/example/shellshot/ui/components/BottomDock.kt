@@ -1,6 +1,5 @@
 package com.example.shellshot.ui.components
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -12,7 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -29,37 +27,24 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
 import com.example.shellshot.ui.theme.ShellShotTheme
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
@@ -68,8 +53,6 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 private val DockEase = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
 
@@ -88,24 +71,8 @@ fun BottomDock(
 
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(32.dp)
-    val selectedIndex = visibleItems.indexOfFirst { it.id == selectedItemId }.coerceAtLeast(0)
     val tabsCount = visibleItems.size
     val dockWidth = (tabsCount * 68 + 8).dp
-    val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
-    val animationScope = rememberCoroutineScope()
-    val indicatorPosition = remember { Animatable(selectedIndex.toFloat()) }
-    var glassAlpha by remember { mutableFloatStateOf(0f) }
-    var didInitialSync by remember { mutableStateOf(false) }
-    val glassAlphaAnimated by animateFloatAsState(
-        targetValue = glassAlpha,
-        animationSpec = tween(durationMillis = 260, easing = DockEase),
-        label = "dock-glass-alpha",
-    )
-    val glassScale by animateFloatAsState(
-        targetValue = if (glassAlpha > 0f) 1f else 0.86f,
-        animationSpec = spring(stiffness = 260f, dampingRatio = 0.84f),
-        label = "dock-glass-scale",
-    )
     val dockOffsetY by animateDpAsState(
         targetValue = if (hidden) 150.dp else 0.dp,
         animationSpec = spring(stiffness = 400f, dampingRatio = 0.7f),
@@ -122,22 +89,7 @@ fun BottomDock(
         label = "dock-hidden-alpha",
     )
 
-    LaunchedEffect(selectedIndex, tabsCount) {
-        if (!didInitialSync) {
-            indicatorPosition.snapTo(selectedIndex.toFloat())
-            didInitialSync = true
-        } else {
-            glassAlpha = 1f
-            indicatorPosition.animateTo(
-                targetValue = selectedIndex.toFloat(),
-                animationSpec = spring(stiffness = 240f, dampingRatio = 0.86f),
-            )
-            delay(150)
-            glassAlpha = 0f
-        }
-    }
-
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(bottom = 32.dp)
@@ -154,176 +106,57 @@ fun BottomDock(
                 clip = false,
                 ambientColor = Color.Black.copy(alpha = if (darkTheme) 0.38f else 0.12f),
                 spotColor = Color.Black.copy(alpha = if (darkTheme) 0.42f else 0.15f),
-            ),
+            )
+            .clip(shape)
+            .then(
+                if (liquidBackdrop != null) {
+                    Modifier.drawBackdrop(
+                        backdrop = liquidBackdrop,
+                        shape = { Capsule() },
+                        effects = {
+                            vibrancy()
+                            blur(8.dp.toPx())
+                            lens(18.dp.toPx(), 22.dp.toPx())
+                        },
+                        highlight = { Highlight.Default.copy(alpha = if (darkTheme) 0.32f else 0.50f) },
+                        shadow = { Shadow(radius = 14.dp, alpha = if (darkTheme) 0.28f else 0.14f) },
+                        innerShadow = { InnerShadow(radius = 6.dp, alpha = if (darkTheme) 0.20f else 0.10f) },
+                        onDrawSurface = {
+                            drawRect(if (darkTheme) Color(0xFF121212).copy(alpha = 0.40f) else Color(0xFFFAFAFA).copy(alpha = 0.40f))
+                        },
+                    )
+                } else {
+                    Modifier.background(if (darkTheme) Color.Black.copy(alpha = 0.56f) else Color.White.copy(alpha = 0.86f))
+                },
+            )
+            .border(
+                width = 1.dp,
+                color = if (darkTheme) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.50f),
+                shape = shape,
+            )
+            .height(64.dp)
+            .padding(4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        val density = LocalDensity.current
-        val tabWidth = with(density) { (constraints.maxWidth.toFloat() - 8.dp.toPx()) / tabsCount }
-        val tabsBackdrop = rememberLayerBackdrop()
-        fun settleTo(index: Int) {
-            val safeIndex = index.coerceIn(0, tabsCount - 1)
-            val targetItem = visibleItems[safeIndex]
-            animationScope.launch {
-                glassAlpha = 1f
-                indicatorPosition.animateTo(
-                    targetValue = safeIndex.toFloat(),
-                    animationSpec = spring(stiffness = 240f, dampingRatio = 0.86f),
-                )
-                delay(150)
-                glassAlpha = 0f
-            }
-            if (targetItem.id != selectedItemId) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onItemSelected(targetItem.id)
-            }
-        }
-
         Row(
-            modifier = Modifier
-                .clip(shape)
-                .then(
-                    if (liquidBackdrop != null) {
-                        Modifier.drawBackdrop(
-                            backdrop = liquidBackdrop,
-                            shape = { Capsule() },
-                            effects = {
-                                vibrancy()
-                                blur(8.dp.toPx())
-                                lens(24.dp.toPx(), 24.dp.toPx())
-                            },
-                            onDrawSurface = {
-                                drawRect(if (darkTheme) Color(0xFF121212).copy(alpha = 0.40f) else Color(0xFFFAFAFA).copy(alpha = 0.40f))
-                            },
-                        )
-                    } else {
-                        Modifier.background(if (darkTheme) Color.Black.copy(alpha = 0.56f) else Color.White.copy(alpha = 0.86f))
-                    },
-                )
-                .border(
-                    width = 1.dp,
-                    color = if (darkTheme) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.50f),
-                    shape = shape,
-                )
-                .height(64.dp)
-                .fillMaxWidth()
-                .padding(4.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            visibleItems.forEachIndexed { index, item ->
+            visibleItems.forEach { item ->
                 DockTab(
                     item = item,
                     selected = item.id == selectedItemId,
                     darkTheme = darkTheme,
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                         if (item.id != selectedItemId) {
-                            settleTo(index)
+                            onItemSelected(item.id)
                         }
                     },
                 )
             }
         }
-
-        Row(
-            modifier = Modifier
-                .alpha(0f)
-                .layerBackdrop(tabsBackdrop)
-                .height(56.dp)
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            visibleItems.forEachIndexed { index, item ->
-                DockTabVisual(
-                    item = item,
-                    selected = index == selectedIndex,
-                    darkTheme = darkTheme,
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 4.dp)
-                .align(Alignment.CenterStart)
-                .graphicsLayer {
-                    translationX = if (isLtr) {
-                        indicatorPosition.value * tabWidth
-                    } else {
-                        size.width - (indicatorPosition.value + 1f) * tabWidth
-                    }
-                    alpha = glassAlphaAnimated
-                    scaleX = glassScale
-                    scaleY = glassScale
-                }
-                .fillMaxWidth(1f / tabsCount)
-                .height(56.dp)
-                .then(
-                    if (liquidBackdrop != null) {
-                        Modifier.drawBackdrop(
-                            backdrop = rememberCombinedBackdrop(liquidBackdrop, tabsBackdrop),
-                            shape = { Capsule() },
-                            effects = {
-                                vibrancy()
-                                blur(4.dp.toPx() * glassAlphaAnimated)
-                                lens(
-                                    12.dp.toPx() * glassAlphaAnimated,
-                                    16.dp.toPx() * glassAlphaAnimated,
-                                    chromaticAberration = true,
-                                )
-                            },
-                            highlight = { Highlight.Default.copy(alpha = 0.75f * glassAlphaAnimated) },
-                            shadow = { Shadow(alpha = 0.35f * glassAlphaAnimated) },
-                            innerShadow = {
-                                InnerShadow(
-                                    radius = 8.dp * glassAlphaAnimated,
-                                    alpha = 0.65f * glassAlphaAnimated,
-                                )
-                            },
-                            onDrawSurface = {
-                                drawRect(
-                                    if (darkTheme) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.18f),
-                                )
-                            },
-                        )
-                    } else {
-                        Modifier.background(
-                            if (darkTheme) {
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = 0.12f),
-                                        Color.White.copy(alpha = 0.04f),
-                                    ),
-                                )
-                            } else {
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color.Black.copy(alpha = 0.05f),
-                                        Color.Transparent,
-                                    ),
-                                )
-                            },
-                            RoundedCornerShape(28.dp),
-                        )
-                    },
-                ),
-        )
     }
-}
-
-@Composable
-private fun RowScope.DockTabVisual(
-    item: NavItem,
-    selected: Boolean,
-    darkTheme: Boolean,
-) {
-    DockTabContent(
-        item = item,
-        selected = selected,
-        darkTheme = darkTheme,
-        modifier = Modifier
-            .fillMaxHeight()
-            .weight(1f),
-    )
 }
 
 @Composable
@@ -332,30 +165,6 @@ private fun RowScope.DockTab(
     selected: Boolean,
     darkTheme: Boolean,
     onClick: () -> Unit,
-) {
-    DockTabContent(
-        item = item,
-        selected = selected,
-        darkTheme = darkTheme,
-        modifier = Modifier
-            .clip(Capsule())
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Tab,
-                onClick = onClick,
-            )
-            .fillMaxHeight()
-            .weight(1f),
-    )
-}
-
-@Composable
-private fun DockTabContent(
-    item: NavItem,
-    selected: Boolean,
-    darkTheme: Boolean,
-    modifier: Modifier,
 ) {
     val iconOffsetY by animateDpAsState(
         targetValue = if (selected) (-6).dp else 0.dp,
@@ -376,7 +185,16 @@ private fun DockTabContent(
     val idleColor = if (darkTheme) Color(0xFF8E8E93) else Color.Gray
 
     Column(
-        modifier = modifier,
+        modifier = Modifier
+            .clip(Capsule())
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Tab,
+                onClick = onClick,
+            )
+            .fillMaxHeight()
+            .weight(1f),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

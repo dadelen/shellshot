@@ -3,8 +3,6 @@ package com.example.shellshot.ui.screen
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
@@ -13,7 +11,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -141,7 +138,7 @@ fun TemplateScreen(
     LaunchedEffect(detailVisible) {
         onDetailToggle(detailVisible)
         if (!detailVisible) {
-            delay(340)
+            delay(360)
             if (!detailVisible) {
                 detailTemplate = null
             }
@@ -276,7 +273,7 @@ fun TemplateScreen(
                             itemsIndexed(otherTemplates, key = { _, item -> item.id }) { index, template ->
                                 val isDeleting = deletingTemplateId == template.id
                                 val stackOffsetY by animateDpAsState(
-                                    targetValue = if (index > 0) (-18 * index).dp else 0.dp,
+                                    targetValue = if (index > 0) (-24 * index).dp else 0.dp,
                                     animationSpec = spring(stiffness = 360f, dampingRatio = 0.86f),
                                     label = "template-stack-offset-${template.id}",
                                 )
@@ -406,45 +403,61 @@ private fun TemplateDetailOverlay(
     onApply: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val transition = updateTransition(targetState = visible, label = "template-detail-overlay")
-    val cardAlpha by transition.animateFloat(
-        transitionSpec = { tween(durationMillis = 220) },
-        label = "template-detail-card-alpha",
-    ) { shown ->
-        if (shown) 1f else 0f
-    }
-    val cardScale by transition.animateFloat(
-        transitionSpec = { spring(stiffness = 420f, dampingRatio = 0.82f) },
-        label = "template-detail-card-scale",
-    ) { shown ->
-        if (shown) 1f else 0.58f
-    }
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 180, delayMillis = if (visible) 120 else 0),
-        label = "template-detail-content-alpha",
-    )
-    val contentOffsetY by animateDpAsState(
-        targetValue = if (visible) 0.dp else 18.dp,
-        animationSpec = tween(durationMillis = 220, delayMillis = if (visible) 120 else 0),
-        label = "template-detail-content-y",
-    )
-
     BoxWithConstraints(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        val sourceOffsetY = (sourceCenterY ?: (maxHeight / 2)) - (maxHeight / 2)
+        val sharedElementSpring = spring<Float>(stiffness = 350f, dampingRatio = 0.93f)
+        val sharedElementSpringDp = spring<Dp>(stiffness = 350f, dampingRatio = 0.93f)
+        val transition = updateTransition(targetState = visible, label = "template-detail-shared-exit")
+        val overlayAlpha by transition.animateFloat(
+            transitionSpec = { tween(durationMillis = 300) },
+            label = "template-detail-overlay-alpha",
+        ) { shown -> if (shown) 0.6f else 0f }
+        val overlayBlur by transition.animateDp(
+            transitionSpec = { tween(durationMillis = 300) },
+            label = "template-detail-overlay-blur",
+        ) { shown -> if (shown) 10.dp else 0.dp }
         val cardOffsetY by transition.animateDp(
-            transitionSpec = { spring(stiffness = 420f, dampingRatio = 0.86f) },
+            transitionSpec = {
+                if (targetState) sharedElementSpringDp else tween(durationMillis = 300)
+            },
             label = "template-detail-card-y",
-        ) { shown ->
-            if (shown) 0.dp else sourceOffsetY
-        }
+        ) { shown -> if (shown) 0.dp else 300.dp }
+        val cardScaleX by transition.animateFloat(
+            transitionSpec = {
+                if (targetState) sharedElementSpring else tween(durationMillis = 300)
+            },
+            label = "template-detail-card-scale-x",
+        ) { shown -> if (shown) 1f else 0.90f }
+        val cardScaleY by transition.animateFloat(
+            transitionSpec = {
+                if (targetState) sharedElementSpring else tween(durationMillis = 300)
+            },
+            label = "template-detail-card-scale-y",
+        ) { shown -> if (shown) 1f else 0.90f }
+        val cardAlpha by transition.animateFloat(
+            transitionSpec = { tween(durationMillis = 300) },
+            label = "template-detail-card-alpha",
+        ) { shown -> if (shown) 1f else 0f }
+        val contentAlpha by transition.animateFloat(
+            transitionSpec = {
+                if (targetState) tween(durationMillis = 180, delayMillis = 120) else tween(durationMillis = 120)
+            },
+            label = "template-detail-content-alpha",
+        ) { shown -> if (shown) 1f else 0f }
+        val contentOffsetY by transition.animateDp(
+            transitionSpec = {
+                if (targetState) tween(durationMillis = 220, delayMillis = 120) else tween(durationMillis = 120)
+            },
+            label = "template-detail-content-y",
+        ) { shown -> if (shown) 0.dp else 18.dp }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color.Black.copy(alpha = overlayAlpha))
+                .blur(overlayBlur)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -454,13 +467,13 @@ private fun TemplateDetailOverlay(
 
         Box(
             modifier = Modifier
-                .fillMaxWidth(0.80f)
                 .offset(y = cardOffsetY)
                 .graphicsLayer {
                     alpha = cardAlpha
-                    scaleX = cardScale
-                    scaleY = cardScale
+                    scaleX = cardScaleX
+                    scaleY = cardScaleY
                 }
+                .fillMaxWidth(0.88f)
                 .shadow(40.dp, RoundedCornerShape(48.dp), spotColor = Color.Black.copy(alpha = 0.18f))
                 .clip(RoundedCornerShape(48.dp))
                 .background(if (darkTheme) Color(0xFF1C1C1E) else Color.White)
@@ -473,95 +486,95 @@ private fun TemplateDetailOverlay(
                 .clickable(enabled = false) {},
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TemplateCircleButton(
-                        icon = AppIconId.Delete,
-                        tint = if (template.canDelete) TemplateRed else Color.Gray,
-                        background = TemplateRed.copy(alpha = if (template.canDelete) 0.10f else 0.04f),
-                        enabled = template.canDelete && !importInProgress,
-                        contentDescription = "删除模板",
-                        onClick = onDelete,
-                    )
-                    TemplateCircleButton(
-                        icon = AppIconId.Close,
-                        tint = if (darkTheme) Color.White else Color.Gray,
-                        background = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7),
-                        contentDescription = "关闭",
-                        onClick = onClose,
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .offset(y = contentOffsetY)
-                        .graphicsLayer { alpha = contentAlpha },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    TemplatePreviewThumbnail(
-                        previewPath = template.previewAsset,
-                        contentDescription = template.name,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .scale(if (visible) 1f else 0.96f),
-                        cornerRadius = 24.dp,
-                        imagePadding = 0.dp,
-                        selected = template.id == activeTemplateId,
-                    )
-
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Text(
-                        text = template.name,
-                        fontSize = 21.sp,
-                        lineHeight = 25.sp,
-                        fontWeight = FontWeight.Black,
-                        color = if (darkTheme) Color.White else Color.Black,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-
-                    Spacer(modifier = Modifier.height(22.dp))
-
-                    DetailRow(
-                        label = "分辨率",
-                        value = templateResolutionLabel(template),
-                        darkTheme = darkTheme,
-                    )
-                    DetailRow(
-                        label = "模板类型",
-                        value = if (template.isBuiltIn) "内置模板" else "用户自定义",
-                        darkTheme = darkTheme,
-                    )
-
-                    Spacer(modifier = Modifier.height(26.dp))
-
-                    Button(
-                        onClick = onApply,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        enabled = template.id != activeTemplateId,
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = TemplateBlue,
-                            disabledContainerColor = Color(0xFFE5E5EA),
-                            disabledContentColor = Color.Gray,
-                        ),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = if (template.id == activeTemplateId) "当前使用中" else "应用模板",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black,
+                        TemplateCircleButton(
+                            icon = AppIconId.Delete,
+                            tint = if (template.canDelete) TemplateRed else Color.Gray,
+                            background = TemplateRed.copy(alpha = if (template.canDelete) 0.10f else 0.04f),
+                            enabled = template.canDelete && !importInProgress,
+                            contentDescription = "删除模板",
+                            onClick = onDelete,
                         )
+                        TemplateCircleButton(
+                            icon = AppIconId.Close,
+                            tint = if (darkTheme) Color.White else Color.Gray,
+                            background = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7),
+                            contentDescription = "关闭",
+                            onClick = onClose,
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .padding(top = 18.dp)
+                            .offset(y = contentOffsetY)
+                            .graphicsLayer { alpha = contentAlpha },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        TemplatePreviewThumbnail(
+                            previewPath = template.previewAsset,
+                            contentDescription = template.name,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(150.dp),
+                            cornerRadius = 24.dp,
+                            imagePadding = 0.dp,
+                            selected = template.id == activeTemplateId,
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Text(
+                            text = template.name,
+                            fontSize = 21.sp,
+                            lineHeight = 25.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (darkTheme) Color.White else Color.Black,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+
+                        Spacer(modifier = Modifier.height(22.dp))
+
+                        DetailRow(
+                            label = "分辨率",
+                            value = templateResolutionLabel(template),
+                            darkTheme = darkTheme,
+                        )
+                        DetailRow(
+                            label = "模板类型",
+                            value = if (template.isBuiltIn) "内置模板" else "用户自定义",
+                            darkTheme = darkTheme,
+                        )
+
+                        Spacer(modifier = Modifier.height(26.dp))
+
+                        Button(
+                            onClick = onApply,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            enabled = template.id != activeTemplateId,
+                            shape = RoundedCornerShape(18.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = TemplateBlue,
+                                disabledContainerColor = Color(0xFFE5E5EA),
+                                disabledContentColor = Color.Gray,
+                            ),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
+                        ) {
+                            Text(
+                                text = if (template.id == activeTemplateId) "当前使用中" else "应用模板",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
                     }
                 }
             }
-        }
     }
 }
 
@@ -672,13 +685,13 @@ private fun TemplateCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(18.dp)
+                    .height(22.dp)
                     .align(Alignment.TopCenter)
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = if (darkTheme) 0.16f else 0.055f),
-                                Color.Black.copy(alpha = if (darkTheme) 0.05f else 0.018f),
+                                Color.Black.copy(alpha = if (darkTheme) 0.18f else 0.075f),
+                                Color.Black.copy(alpha = if (darkTheme) 0.07f else 0.025f),
                                 Color.Transparent,
                             ),
                         ),
@@ -689,21 +702,21 @@ private fun TemplateCard(
                     .fillMaxWidth()
                     .height(1.dp)
                     .align(Alignment.TopCenter)
-                    .background(if (darkTheme) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.9f)),
+                    .background(if (darkTheme) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.96f)),
             )
             Box(
                 modifier = Modifier
-                    .width((44 + stackDepth * 8).dp)
-                    .height(2.dp)
+                    .width((56 + stackDepth * 10).dp)
+                    .height(2.5.dp)
                     .align(Alignment.TopCenter)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(if (darkTheme) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f)),
+                    .background(if (darkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.045f)),
             )
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (stacked) 24.dp else 20.dp, vertical = if (stacked) 16.dp else 20.dp),
+                    .padding(horizontal = if (stacked) 20.dp else 22.dp, vertical = if (stacked) 16.dp else 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -715,7 +728,7 @@ private fun TemplateCard(
                     previewPath = template.previewAsset,
                     contentDescription = template.name,
                     modifier = Modifier.fillMaxSize(),
-                    cornerRadius = if (stacked) 12.dp else 14.dp,
+                    cornerRadius = if (stacked) 10.dp else 12.dp,
                     imagePadding = 0.dp,
                     selected = isActive,
                 )
@@ -728,7 +741,7 @@ private fun TemplateCard(
                     text = template.name,
                     fontSize = 17.sp,
                     lineHeight = 21.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Black,
                     color = if (darkTheme) Color.White else Color.Black,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -737,30 +750,28 @@ private fun TemplateCard(
                 Text(
                     text = templateResolutionLabel(template),
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Black,
                     color = if (darkTheme) Color(0xFFA1A1AA) else Color(0xFF9CA3AF),
                     maxLines = 1,
                 )
             } else {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = template.name,
-                        fontSize = 17.sp,
-                        lineHeight = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (darkTheme) Color.White else Color.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                    Text(
-                        text = templateResolutionLabel(template),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TemplateBlue,
-                        maxLines = 1,
-                    )
-                }
+                Text(
+                    text = template.name,
+                    fontSize = 18.sp,
+                    lineHeight = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    color = if (darkTheme) Color.White else Color.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = templateResolutionLabel(template),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    color = if (isActive) TemplateBlue else if (darkTheme) Color(0xFFA1A1AA) else Color(0xFF9CA3AF),
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -852,7 +863,36 @@ private fun DeleteTemplateConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        DialogSurface(darkTheme = darkTheme, cornerRadius = 40.dp) {
+        val transition = updateTransition(targetState = true, label = "delete-confirm-overlay")
+        val overlayAlpha by transition.animateFloat(
+            transitionSpec = { tween(durationMillis = 280) },
+            label = "delete-confirm-overlay-alpha",
+        ) { shown ->
+            if (shown) 0.6f else 0f
+        }
+        val overlayBlur by transition.animateDp(
+            transitionSpec = { tween(durationMillis = 320) },
+            label = "delete-confirm-overlay-blur",
+        ) { shown ->
+            if (shown) 8.dp else 0.dp
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = overlayAlpha))
+                .blur(overlayBlur)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                ),
+        )
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            DialogSurface(darkTheme = darkTheme, cornerRadius = 40.dp) {
             Box(
                 modifier = Modifier
                     .size(54.dp)
@@ -884,7 +924,7 @@ private fun DeleteTemplateConfirmDialog(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "该操作将从本机移除此模板配置及其预览资源，完成后无法恢复。",
+                text = "",
                 fontSize = 13.sp,
                 lineHeight = 19.sp,
                 color = if (darkTheme) Color(0xFFA1A1AA) else Color.Gray,
@@ -919,6 +959,7 @@ private fun DeleteTemplateConfirmDialog(
                     Text("删除", fontWeight = FontWeight.Black)
                 }
             }
+        }
         }
     }
 }

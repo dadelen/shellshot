@@ -335,6 +335,8 @@ class TemplateRepository(
                 name = draft.templateName.ifBlank { "我的模板" },
                 frameAsset = frameFile.absolutePath,
                 previewAsset = previewFile.absolutePath,
+                logicalWidth = draft.outputWidth,
+                logicalHeight = draft.outputHeight,
                 outputWidth = draft.outputWidth,
                 outputHeight = draft.outputHeight,
                 screenRect = finalRect,
@@ -342,6 +344,11 @@ class TemplateRepository(
                 screenMaskBitmap = maskFile.absolutePath,
                 screenInsetPx = DEFAULT_IMPORTED_SCREEN_INSET_PX,
                 maskBleedPx = DEFAULT_IMPORTED_MASK_BLEED_PX,
+                cutoutBleedPx = DEFAULT_IMPORTED_CUTOUT_BLEED_PX,
+                contentOverscanPx = DEFAULT_IMPORTED_CONTENT_OVERSCAN_PX,
+                alphaTighten = true,
+                alphaLowThreshold = DEFAULT_ALPHA_LOW_THRESHOLD,
+                alphaHighThreshold = DEFAULT_ALPHA_HIGH_THRESHOLD,
                 backgroundColor = "#00000000",
                 scaleMode = ScaleMode.CENTER_CROP.name,
             )
@@ -434,65 +441,20 @@ class TemplateRepository(
         val pixels = IntArray(width * height)
         frameBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        val start = findTransparentSeed(pixels, width, height)
-        if (start == null) {
-            val fallbackRect = ScreenRect(
-                left = (width * 0.12f).toInt(),
-                top = (height * 0.08f).toInt(),
-                right = (width * 0.88f).toInt(),
-                bottom = (height * 0.92f).toInt(),
-            )
+        val component = findBestTransparentComponent(pixels, width, height)
+        if (component == null) {
+            val fallbackRect = createFallbackScreenRect(width, height)
             return DetectionResult(
                 screenRect = fallbackRect,
                 maskBitmap = createRectMask(width, height, fallbackRect),
-                summary = "未识别到透明屏幕区，已使用居中保底区域",
+                summary = "未识别到透明屏幕区，已使用比例保底区域",
                 outputWidth = width,
                 outputHeight = height,
             )
         }
 
-        val visited = BooleanArray(width * height)
-        val queue = ArrayDeque<Pair<Int, Int>>()
-        val maskPixels = IntArray(width * height)
-        queue.addLast(start)
-        visited[start.second * width + start.first] = true
-
-        var minX = width
-        var minY = height
-        var maxX = 0
-        var maxY = 0
-        var area = 0
-
-        while (queue.isNotEmpty()) {
-            val (x, y) = queue.removeFirst()
-            val offset = y * width + x
-            maskPixels[offset] = Color.WHITE
-            area += 1
-            if (x < minX) minX = x
-            if (y < minY) minY = y
-            if (x > maxX) maxX = x
-            if (y > maxY) maxY = y
-
-            for ((nx, ny) in fourNeighbors(x, y, width, height)) {
-                val nextOffset = ny * width + nx
-                if (visited[nextOffset]) {
-                    continue
-                }
-                visited[nextOffset] = true
-                if (!isTransparentPixel(pixels[nextOffset])) {
-                    continue
-                }
-                queue.addLast(nx to ny)
-            }
-        }
-
-        if (area < (width * height * 0.08f)) {
-            val fallbackRect = ScreenRect(
-                left = (width * 0.12f).toInt(),
-                top = (height * 0.08f).toInt(),
-                right = (width * 0.88f).toInt(),
-                bottom = (height * 0.92f).toInt(),
-            )
+        if (component.area < (width * height * MIN_SCREEN_COMPONENT_AREA_RATIO)) {
+            val fallbackRect = createFallbackScreenRect(width, height)
             return DetectionResult(
                 screenRect = fallbackRect,
                 maskBitmap = createRectMask(width, height, fallbackRect),
@@ -503,13 +465,13 @@ class TemplateRepository(
         }
 
         val screenRect = ScreenRect(
-            left = minX,
-            top = minY,
-            right = maxX + 1,
-            bottom = maxY + 1,
+            left = component.minX,
+            top = component.minY,
+            right = component.maxX + 1,
+            bottom = component.maxY + 1,
         )
         val maskBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        maskBitmap.setPixels(maskPixels, 0, width, 0, 0, width, height)
+        maskBitmap.setPixels(component.maskPixels, 0, width, 0, 0, width, height)
 
         return DetectionResult(
             screenRect = screenRect,
@@ -628,6 +590,113 @@ class TemplateRepository(
         }
     }
 
+    private fun findBestTransparentComponent(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+    ): TransparentComponent? {
+        val visited = BooleanArray(width * height)
+        var best: TransparentComponent? = null
+        val centerX = width / 2f
+        val centerY = height / 2f
+
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val startOffset = y * width + x
+                if (visited[startOffset] || !isTransparentPixel(pixels[startOffset])) {
+                    visited[startOffset] = true
+                    continue
+                }
+
+                val component = floodFillTransparentComponent(
+                    startX = x,
+                    startY = y,
+                    pixels = pixels,
+                    visited = visited,
+                    width = width,
+                    height = height,
+                )
+                val currentBest = best
+                if (currentBest == null || component.score(centerX, centerY) > currentBest.score(centerX, centerY)) {
+                    best = component
+                }
+            }
+        }
+
+        return best
+    }
+
+    private fun floodFillTransparentComponent(
+        startX: Int,
+        startY: Int,
+        pixels: IntArray,
+        visited: BooleanArray,
+        width: Int,
+        height: Int,
+    ): TransparentComponent {
+        val queue = ArrayDeque<Pair<Int, Int>>()
+        val maskPixels = IntArray(width * height)
+        queue.addLast(startX to startY)
+        visited[startY * width + startX] = true
+
+        var minX = width
+        var minY = height
+        var maxX = 0
+        var maxY = 0
+        var area = 0
+
+        while (queue.isNotEmpty()) {
+            val (x, y) = queue.removeFirst()
+            val offset = y * width + x
+            maskPixels[offset] = Color.WHITE
+            area += 1
+            if (x < minX) minX = x
+            if (y < minY) minY = y
+            if (x > maxX) maxX = x
+            if (y > maxY) maxY = y
+
+            for ((nx, ny) in fourNeighbors(x, y, width, height)) {
+                val nextOffset = ny * width + nx
+                if (visited[nextOffset]) {
+                    continue
+                }
+                visited[nextOffset] = true
+                if (isTransparentPixel(pixels[nextOffset])) {
+                    queue.addLast(nx to ny)
+                }
+            }
+        }
+
+        return TransparentComponent(
+            minX = minX,
+            minY = minY,
+            maxX = maxX,
+            maxY = maxY,
+            area = area,
+            maskPixels = maskPixels,
+        )
+    }
+
+    private fun createFallbackScreenRect(width: Int, height: Int): ScreenRect {
+        val aspect = width / height.toFloat()
+        val horizontalInsetRatio = when {
+            aspect < 0.48f -> 0.13f
+            aspect < 0.58f -> 0.115f
+            else -> 0.10f
+        }
+        val topInsetRatio = when {
+            aspect < 0.50f -> 0.095f
+            else -> 0.085f
+        }
+        val bottomInsetRatio = 0.075f
+        return ScreenRect(
+            left = (width * horizontalInsetRatio).roundToInt(),
+            top = (height * topInsetRatio).roundToInt(),
+            right = (width * (1f - horizontalInsetRatio)).roundToInt(),
+            bottom = (height * (1f - bottomInsetRatio)).roundToInt(),
+        ).normalizedWithin(width, height)
+    }
+
     private fun findTransparentSeed(
         pixels: IntArray,
         width: Int,
@@ -742,6 +811,24 @@ class TemplateRepository(
         val outputHeight: Int,
     )
 
+    private data class TransparentComponent(
+        val minX: Int,
+        val minY: Int,
+        val maxX: Int,
+        val maxY: Int,
+        val area: Int,
+        val maskPixels: IntArray,
+    ) {
+        fun score(centerX: Float, centerY: Float): Float {
+            val width = maxX - minX + 1
+            val height = maxY - minY + 1
+            val componentCenterX = minX + width / 2f
+            val componentCenterY = minY + height / 2f
+            val centerDistance = kotlin.math.hypot(componentCenterX - centerX, componentCenterY - centerY)
+            return area - centerDistance * 0.75f
+        }
+    }
+
     private companion object {
         const val TAG = "TemplateRepository"
         const val USER_TEMPLATE_ROOT = "user_templates"
@@ -752,6 +839,11 @@ class TemplateRepository(
         const val DEFAULT_SHRINK_PIXELS = 1
         const val DEFAULT_IMPORTED_SCREEN_INSET_PX = 0f
         const val DEFAULT_IMPORTED_MASK_BLEED_PX = 0.75f
+        const val DEFAULT_IMPORTED_CUTOUT_BLEED_PX = 1.2f
+        const val DEFAULT_IMPORTED_CONTENT_OVERSCAN_PX = 1.5f
+        const val DEFAULT_ALPHA_LOW_THRESHOLD = 24
+        const val DEFAULT_ALPHA_HIGH_THRESHOLD = 232
+        const val MIN_SCREEN_COMPONENT_AREA_RATIO = 0.08f
         const val NORMALIZE_CLEAR_ALPHA_THRESHOLD = 12
         const val NORMALIZE_FRINGE_ALPHA_THRESHOLD = 224
         const val NORMALIZE_FRINGE_LUMINANCE_THRESHOLD = 185
