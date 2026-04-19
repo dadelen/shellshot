@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="com_google_android_gms_fonts_certs">
+        <item>@array/com_google_android_gms_fonts_certs_dev</item>
+        <item>@array/com_google_android_gms_fonts_certs_prod</item>
+    </array>
+    <string-array name="com_google_android_gms_fonts_certs_dev">
+        <item>
+            MIIEQzCCAyugAwIBAgIJAMLgh0ZkSjCNMA0GCSqGSIb3DQEBBAUAMHQxCzAJBgNVBAYTAlVTMRMwEQYD
+            VQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQHEw1Nb3VudGFpbiBWaWV3MRQwEgYDVQQKEwtHb29nbGUgSW5j
+            LjEQMA4GA1UECxMHQW5kcm9pZDEQMA4GA1UEAxMHQW5kcm9pZDAeFw0wODA0MTUyMzM2NTZaFw0zNTA5
+            MDIyMzM2NTZaMHQxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQHEw1Nb3Vu
+            dGFpbiBWaWV3MRQwEgYDVQQKEwtHb29nbGUgSW5jLjEQMA4GA1UECxMHQW5kcm9pZDEQMA4GA1UEAxMH
+            QW5kcm9pZDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKdUM67CgV7BqQnE9Rk73GhhJ3Yh
+            eWlC5/7eLd8L8hC85N3I3Bw2Jt7b29M4D7O+MvT2yFwX+/3/s60Q4s+tZ50/Zz3Zp4z7p2zPz4C6eR4U
+            aA48E9Q+m82Y238w8/Qv/z3D7m/P8P3g9J6Q/c3/o3/97+q+k4C5b61u/A9E+Vv5F+Yx/x6A/N82H7H9
+            f7/33917q+H/z7o5X5C4/X8X6T/p3/r+X2Wn3P+K8Fm3s0r0v93V7e+b+l9a4n68j+J9W5f4R7K6R8X8
+            N558p7C/4G+zV7jP9o+N7jD9g/1P/39X5R2+t2+H+y+M5a5T4Z5y6I=
+        </item>
+    </string-array>
+    <string-array name="com_google_android_gms_fonts_certs_prod">
+        <item>
+            MIIEQzCCAyugAwIBAgIJAMLgh0ZkSjCNMA0GCSqGSIb3DQEBBAUAMHQxCzAJBgNVBAYTAlVTMRMwEQYD
+            VQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQHEw1Nb3VudGFpbiBWaWV3MRQwEgYDVQQKEwtHb29nbGUgSW5j
+            LjEQMA4GA1UECxMHQW5kcm9pZDEQMA4GA1UEAxMHQW5kcm9pZDAeFw0wODA0MTUyMzM2NTZaFw0zNTA5
+            MDIyMzM2NTZaMHQxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQHEw1Nb3Vu
+            dGFpbiBWaWV3MRQwEgYDVQQKEwtHb29nbGUgSW5jLjEQMA4GA1UECxMHQW5kcm9pZDEQMA4GA1UEAxMH
+            QW5kcm9pZDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKdUM67CgV7BqQnE9Rk73GhhJ3Yh
+            eWlC5/7eLd8L8hC85N3I3Bw2Jt7b29M4D7O+MvT2yFwX+/3/s60Q4s+tZ50/Zz3Zp4z7p2zPz4C6eR4U
+            aA48E9Q+m82Y238w8/Qv/z3D7m/P8P3g9J6Q/c3/o3/97+q+k4C5b61u/A9E+Vv5F+Yx/x6A/N82H7H9
+            f7/33917q+H/z7o5X5C4/X8X6T/p3/r+X2Wn3P+K8Fm3s0r0v93V7e+b+l9a4n68j+J9W5f4R7K6R8X8
+            N558p7C/4G+zV7jP9o+N7jD9g/1P/39X5R2+t2+H+y+M5a5T4Z5y6I=
+        </item>
+    </string-array>
+</resources>

@@ -1,8 +1,11 @@
 {
   "id": "default_phone",
   "name": "Default Device Frame",
+  "templateVersion": 3,
   "frameAsset": "templates/default_phone/frame.png",
   "previewAsset": "templates/default_phone/preview.png",
+  "logicalWidth": 1440,
+  "logicalHeight": 2840,
   "outputWidth": 1440,
   "outputHeight": 2840,
   "screenRect": {
@@ -12,6 +15,7 @@
     "bottom": 2620
   },
   "cornerRadius": 76,
+  "contentOverscanPx": 2.5,
   "backgroundColor": "#00000000",
   "scaleMode": "CENTER_CROP"
 }

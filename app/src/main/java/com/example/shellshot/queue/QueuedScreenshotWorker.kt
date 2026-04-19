@@ -184,7 +184,7 @@ class QueuedScreenshotWorker(
 
                 logger.d(TAG, "开始合成 path=${candidate.absolutePath} template=${template.id}")
             composedBitmap = runCatching {
-                shellComposeEngine.compose(sourceBitmap, template)
+                shellComposeEngine.compose(sourceBitmap, template, task.id)
             }.onFailure { throwable ->
                 logger.e(TAG, "合成失败 path=${candidate.absolutePath}", throwable)
             }.getOrElse {

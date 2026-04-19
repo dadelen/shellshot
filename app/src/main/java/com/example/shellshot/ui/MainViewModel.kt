@@ -24,6 +24,7 @@ class MainViewModel(
 ) : ViewModel() {
     private val templatesState = MutableStateFlow<List<ShellTemplate>>(emptyList())
     private val permissionSnapshotState = MutableStateFlow(PermissionSnapshot())
+    private val deviceCaptureProfileState = MutableStateFlow(appContainer.templateRepository.currentDeviceCaptureProfile())
     private val templateImportDraftState = MutableStateFlow<TemplateImportDraft?>(null)
     private val templateImportInProgressState = MutableStateFlow(false)
     private val templateImportAlertState = MutableStateFlow<TemplateImportAlert?>(null)
@@ -59,6 +60,8 @@ class MainViewModel(
             lastProcessingResult = runtimeState.lastProcessingResult,
             logs = runtimeState.logs,
         )
+    }.combine(deviceCaptureProfileState) { state, deviceCaptureProfile ->
+        state.copy(currentDeviceCaptureProfile = deviceCaptureProfile)
     }.combine(templateImportInProgressState) { state, templateImportInProgress ->
         state.copy(templateImportInProgress = templateImportInProgress)
     }.combine(templateImportAlertState) { state, templateImportAlert ->
@@ -80,6 +83,7 @@ class MainViewModel(
     }
 
     fun onAppVisible(context: Context) {
+        deviceCaptureProfileState.value = appContainer.templateRepository.currentDeviceCaptureProfile()
         refreshPermissionSnapshot()
         restoreMonitoringIfNeeded(context)
     }
@@ -157,6 +161,48 @@ class MainViewModel(
         templateImportDraftState.value = current.copy(templateName = name)
     }
 
+    fun updateTemplateCalibration(
+        centerX: Float,
+        centerY: Float,
+        width: Float,
+        cornerRadius: Float,
+    ) {
+        val current = templateImportDraftState.value ?: return
+        val safeWidth = width.coerceIn(24f, current.outputWidth.toFloat())
+        val safeHeight = (safeWidth / current.overlayAspectRatio)
+            .coerceIn(24f, current.outputHeight.toFloat())
+        val clampedWidth = if (safeHeight * current.overlayAspectRatio != safeWidth) {
+            safeHeight * current.overlayAspectRatio
+        } else {
+            safeWidth
+        }
+        val halfW = clampedWidth / 2f
+        val halfH = safeHeight / 2f
+        templateImportDraftState.value = current.copy(
+            overlayCenterX = centerX.coerceIn(halfW, current.outputWidth - halfW),
+            overlayCenterY = centerY.coerceIn(halfH, current.outputHeight - halfH),
+            overlayWidth = clampedWidth,
+            overlayHeight = safeHeight,
+            overlayCornerRadius = cornerRadius.coerceIn(0f, minOf(clampedWidth, safeHeight) / 2f),
+        )
+    }
+
+    fun resetTemplateCalibration() {
+        val current = templateImportDraftState.value ?: return
+        templateImportDraftState.value = current.copy(
+            overlayCenterX = current.defaultOverlayCenterX,
+            overlayCenterY = current.defaultOverlayCenterY,
+            overlayWidth = current.defaultOverlayWidth,
+            overlayHeight = current.defaultOverlayHeight,
+            overlayCornerRadius = current.defaultOverlayCornerRadius,
+        )
+    }
+
+    fun setTemplateCalibrationGuidesVisible(visible: Boolean) {
+        val current = templateImportDraftState.value ?: return
+        templateImportDraftState.value = current.copy(showGuides = visible)
+    }
+
     fun cancelTemplateImport() {
         templateImportDraftState.value = null
     }
@@ -184,9 +230,8 @@ class MainViewModel(
         templateImportInProgressState.value = true
         viewModelScope.launch {
             try {
-                val result = appContainer.templateRepository.importPreparedTemplate(
-                    sourceImagePath = draft.sourceImagePath,
-                    templateNameOverride = trimmedName,
+                val result = appContainer.templateRepository.importPreparedTemplateDraft(
+                    draft.copy(templateName = trimmedName),
                 )
                 if (result.success && result.templateId != null) {
                     templateImportDraftState.value = null

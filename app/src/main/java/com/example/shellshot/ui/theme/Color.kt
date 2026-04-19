@@ -2,42 +2,34 @@ package com.example.shellshot.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val BackgroundPrimary = Color(0xFFEBEDF0)
-val BackgroundSecondary = Color(0xFFEBEDF0)
-val CardBackground = Color(0xFFFFFFFF)
-val CardBackgroundStrong = Color(0xFFFFFFFF)
-val CardStroke = Color(0xFFFFFFFF)
-val TextPrimary = Color(0xFF1C1C1E)
-val TextSecondary = Color(0xFF6E6E73)
-val TextTertiary = Color(0xFF8E8E93)
-val AccentBlue = Color(0xFF8EA4BF)
-val AccentBlueSoft = Color(0xFFF1F4F8)
-val AccentGreen = Color(0xFF8AA892)
-val AccentGreenSoft = Color(0xFFEEF3EF)
-val AccentAmber = Color(0xFFB7A189)
-val AccentAmberSoft = Color(0xFFF4EEEA)
-val AccentRed = Color(0xFFC97B7B)
-val AccentRedSoft = Color(0xFFF7ECEC)
-val DividerColor = Color(0xFFE5E5EA)
-val NavBarBackground = Color(0xCCFFFFFF)
-val SelectedItemBackground = Color(0xF4F8FAFD)
-val ShadowAmbient = Color(0x0D000000)
-val ShadowSpot = Color(0x0D000000)
+object ShellColors {
+    // Backgrounds
+    fun background(isDark: Boolean) = if (isDark) Color.Black else Color(0xFFE8EAEE)
+    fun baseCard(isDark: Boolean) = if (isDark) Color(0xCC141415) else Color(0xCCFFFFFF)
+    fun elevatedCard(isDark: Boolean) = if (isDark) Color(0xD91C1C1E) else Color(0xD9F7F8FA)
+    
+    // Status & Badges (Monochrome logic instead of colors)
+    fun badgeBg(isDark: Boolean) = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.06f)
+    fun badgeText(isDark: Boolean) = if (isDark) Color(0xFFE5E5EA) else Color(0xFF3A3A3C)
+    
+    // Strokes and separators
+    fun border(isDark: Boolean) = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+    fun subtleBorder(isDark: Boolean) = if (isDark) Color.White.copy(alpha = 0.03f) else Color.Black.copy(alpha = 0.03f)
+    
+    // Text primary/secondary
+    fun textPrimary(isDark: Boolean) = if (isDark) Color.White else Color.Black
+    fun textSecondary(isDark: Boolean) = if (isDark) Color(0xFFA1A1AA) else Color(0xFF8E8E93)
+    fun textTertiary(isDark: Boolean) = if (isDark) Color(0xFF636366) else Color(0xFFAEAEC0)
+    
+    // Button Action (Invert theme for focus)
+    fun actionBg(isDark: Boolean) = if (isDark) Color.White else Color.Black
+    fun actionText(isDark: Boolean) = if (isDark) Color.Black else Color.White
+    
+    // Toggles (Glass Switch active states)
+    fun switchActive(isDark: Boolean) = if (isDark) Color.White else Color.Black
 
-val DarkBackgroundPrimary = Color(0xFF000000)
-val DarkBackgroundSecondary = Color(0xFF000000)
-val DarkCardBackground = Color(0xFF1C1C1E)
-val DarkCardBackgroundStrong = Color(0xFF1C1C1E)
-val DarkCardStroke = Color(0x0DFFFFFF)
-val DarkTextPrimary = Color(0xFFF5F5F7)
-val DarkTextSecondary = Color(0xFFAEAEB2)
-val DarkTextTertiary = Color(0xFF8E8E93)
-val DarkAccentBlue = Color(0xFFA3B5CA)
-val DarkAccentGreen = Color(0xFF95AD9A)
-val DarkAccentAmber = Color(0xFFC0A892)
-val DarkAccentRed = Color(0xFFD18A8A)
-val DarkDividerColor = Color(0x26E5E5EA)
-val DarkNavBarBackground = Color(0xCC1F2329)
-val DarkSelectedItemBackground = Color(0xFF2D333C)
-val DarkShadowAmbient = Color(0x1AFFFFFF)
-val DarkShadowSpot = Color(0x1AFFFFFF)
+    // Strict Accents (Use EXTREMELY sparingly)
+    val criticalOrange = Color(0xFFFF9F0A)
+    val criticalRed = Color(0xFFFF453A)
+    val successGreen = Color(0xFF32D74B)
+}

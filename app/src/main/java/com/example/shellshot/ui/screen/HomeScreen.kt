@@ -1,26 +1,21 @@
 package com.example.shellshot.ui.screen
 
-import androidx.compose.animation.AnimatedContent
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +24,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,24 +32,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,8 +61,18 @@ import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.TemplatePreviewThumbnail
 import com.example.shellshot.utils.TimeUtils
+import com.example.shellshot.R
+import androidx.compose.ui.res.stringResource
 import com.kyant.backdrop.Backdrop
+import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import com.example.shellshot.ui.theme.ShellColors
+import com.example.shellshot.ui.theme.AppTypography
+import com.example.shellshot.ui.components.bentoCard
+import com.example.shellshot.ui.components.ghostPill
+import com.example.shellshot.ui.components.BentoSwitch
 
 @Composable
 fun HomeScreen(
@@ -83,51 +87,24 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
 ) {
     val pageDark = darkTheme
-    var isTransitioning by remember { mutableStateOf(false) }
-    var previousDark by remember { mutableStateOf(darkTheme) }
-
-    val scale by animateFloatAsState(
-        targetValue = if (isTransitioning) 1.02f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow,
-        ),
-        label = "scale",
-    )
-
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (isTransitioning) 0f else 1f,
-        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
-        label = "contentAlpha",
-    )
-
-    LaunchedEffect(darkTheme) {
-        if (previousDark != darkTheme) {
-            isTransitioning = true
-            delay(200)
-            previousDark = darkTheme
-            isTransitioning = false
-        }
-    }
-
+    
+    // 我们去除了刺眼的主题过渡 Alpha 和 Scale，直接由 colorscheme 接管渐变。
+    // 但是内容本身的级联入场依然保留。
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (pageDark) Color.Black else Color(0xFFF2F2F7))
-            .scale(scale),
+            .background(ShellColors.background(pageDark)),
     ) {
         HomeContent(
             uiState = uiState,
             isDark = pageDark,
             liquidBackdrop = liquidBackdrop,
-            onToggleTheme = {
-                onToggleDarkTheme()
-            },
+            onToggleTheme = onToggleDarkTheme,
             onToggleMonitoring = onToggleMonitoring,
             onOpenTemplates = onOpenTemplates,
             onOpenSettings = onOpenSettings,
             onSelectTemplate = onSelectTemplate,
-            modifier = Modifier.alpha(contentAlpha),
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
@@ -153,8 +130,6 @@ private fun HomeContent(
 
     Column(
         modifier = modifier
-            .fillMaxSize()
-            .background(if (isDark) Color.Black else Color(0xFFF2F2F7))
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp),
     ) {
@@ -162,47 +137,42 @@ private fun HomeContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 64.dp, bottom = 24.dp),
+                    .padding(top = 64.dp, bottom = 32.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "ShellShot",
-                    fontSize = 34.sp,
-                    fontWeight = FontWeight.Black,
-                    color = if (isDark) Color.White else Color.Black,
+                    text = stringResource(R.string.home_title),
+                    style = AppTypography.displayLarge,
+                    color = ShellColors.textPrimary(isDark)
                 )
                 IconButton(
                     onClick = onToggleTheme,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .background(
-                            if (isDark) Color(0xFF1C1C1E) else Color.White,
-                            CircleShape
-                        )
-                        .shadow(
-                            elevation = 4.dp,
-                            shape = CircleShape,
-                            ambientColor = Color.Black.copy(alpha = 0.1f),
-                            spotColor = Color.Black.copy(alpha = 0.1f),
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = if (isDark) Color.White.copy(alpha = 0.1f) else Color(0xFFE5E5EA),
-                            shape = CircleShape,
-                        ),
+                    modifier = Modifier.size(44.dp).bentoCard(isDark, cornerRadius = 22.dp)
                 ) {
                     AppIcon(
                         icon = if (isDark) AppIconId.Sun else AppIconId.Moon,
-                        contentDescription = "切换主题",
-                        tint = if (isDark) Color.White else Color.Black,
-                        modifier = Modifier.size(23.dp),
+                        contentDescription = stringResource(R.string.home_toggle_theme),
+                        tint = ShellColors.textPrimary(isDark),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
         }
 
         StaggeredItem(visible = showContent, index = 1) {
+            HeroPreviewCard(
+                uiState = uiState,
+                isDark = isDark,
+                liquidBackdrop = liquidBackdrop,
+                onOpenTemplates = onOpenTemplates,
+                onSelectTemplate = onSelectTemplate,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        StaggeredItem(visible = showContent, index = 2) {
             StatusCard(
                 uiState = uiState,
                 isDark = isDark,
@@ -212,21 +182,10 @@ private fun HomeContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        StaggeredItem(visible = showContent, index = 2) {
-            CurrentTemplateCard(
-                uiState = uiState,
-                isDark = isDark,
-                onOpenTemplates = onOpenTemplates,
-                onSelectTemplate = onSelectTemplate,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         StaggeredItem(visible = showContent, index = 3) {
-            RecentLogCard(uiState = uiState, isDark = isDark)
+            RecentLogCard(uiState = uiState, isDark = isDark, liquidBackdrop = liquidBackdrop)
         }
 
         Spacer(modifier = Modifier.height(120.dp))
@@ -242,18 +201,124 @@ private fun StaggeredItem(
     var itemVisible by remember { mutableStateOf(false) }
     LaunchedEffect(visible) {
         if (visible) {
-            delay(index * 100L)
+            delay(index * 70L)
             itemVisible = true
         }
     }
 
     AnimatedVisibility(
         visible = itemVisible,
-        enter = slideInVertically(initialOffsetY = { 30 }) + fadeIn() + scaleIn(initialScale = 0.98f),
-        exit = fadeOut() + scaleOut(targetScale = 1.02f),
+        enter = slideInVertically(initialOffsetY = { 24 }) + fadeIn(tween(300, easing = FastOutSlowInEasing)) + scaleIn(initialScale = 0.98f),
+        exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.98f),
         modifier = Modifier.fillMaxWidth(),
     ) {
         content()
+    }
+}
+
+@Composable
+private fun HeroPreviewCard(
+    uiState: MainUiState,
+    isDark: Boolean,
+    liquidBackdrop: Backdrop,
+    onOpenTemplates: () -> Unit,
+    onSelectTemplate: (String) -> Unit,
+) {
+    val template = uiState.selectedTemplate
+    val outputPath = uiState.lastProcessingResult?.outputPath
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(targetValue = if (pressed) 0.97f else 1f, spring(stiffness = 500f, dampingRatio = 0.7f), label = "hero")
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
+            .bentoCard(isDark, cornerRadius = 24.dp, backdrop = liquidBackdrop)
+            .clickable(interactionSource = interactionSource, indication = null) {
+                if (template != null) onSelectTemplate(template.id) else onOpenTemplates()
+            }
+            .padding(24.dp),
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.home_last_export),
+                        style = AppTypography.labelMedium,
+                        color = ShellColors.textTertiary(isDark),
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = template?.name ?: stringResource(R.string.home_no_template),
+                        style = AppTypography.titleLarge,
+                        color = ShellColors.textPrimary(isDark),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                
+                // 去除五花八门的牌子，使用极简的次重指示箭头
+                AppIcon(
+                    icon = AppIconId.ChevronRight,
+                    contentDescription = null,
+                    tint = ShellColors.textSecondary(isDark),
+                    modifier = Modifier.size(20.dp).alpha(0.5f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(320.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (isDark) Color(0xFF0A0A0B) else Color(0xFFF1F2F4)),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    outputPath != null -> OutputImagePreview(path = outputPath, modifier = Modifier.fillMaxSize())
+                    template != null -> TemplatePreviewThumbnail(
+                        previewPath = template.previewAsset,
+                        contentDescription = template.name,
+                        modifier = Modifier.fillMaxWidth().height(300.dp),
+                        cornerRadius = 20.dp,
+                        imagePadding = 0.dp,
+                        selected = false,
+                    )
+                    else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        AppIcon(
+                            icon = AppIconId.Template,
+                            contentDescription = stringResource(R.string.home_no_template),
+                            tint = ShellColors.textTertiary(isDark),
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(stringResource(R.string.home_ready_to_frame), style = AppTypography.bodyMedium, color = ShellColors.textTertiary(isDark))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OutputImagePreview(path: String, modifier: Modifier = Modifier) {
+    val image by produceState<ImageBitmap?>(initialValue = null, path) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val file = File(path)
+                if (file.exists()) BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() else null
+            }.getOrNull()
+        }
+    }
+    if (image != null) {
+        Image(bitmap = image!!, contentDescription = null, modifier = modifier, contentScale = ContentScale.Fit)
     }
 }
 
@@ -266,336 +331,104 @@ private fun StatusCard(
     onOpenSettings: () -> Unit,
 ) {
     val monitoringEnabled = uiState.settings.monitoringEnabled
-    val dotColor = when {
-        uiState.mode == AutoShellMode.ACTIVE && uiState.monitoringActive -> Color(0xFF34C759)
-        monitoringEnabled -> Color(0xFFFF9500)
-        isDark -> Color(0xFF8E8E93)
-        else -> Color.Gray
+    val hasPerms = uiState.hasCoreStartPermissions
+    
+    val title = if (monitoringEnabled) stringResource(R.string.home_observer_active) else stringResource(R.string.home_observer_inactive)
+    val subtitle = when {
+        !hasPerms -> stringResource(R.string.home_missing_permissions)
+        monitoringEnabled -> stringResource(R.string.home_waiting_screenshots)
+        else -> stringResource(R.string.home_standby)
     }
-    val title = when {
-        uiState.mode == AutoShellMode.ACTIVE && uiState.monitoringActive -> "监听服务已启动"
-        monitoringEnabled -> "监听服务准备中"
-        else -> "监听服务未启动"
-    }
-    val infiniteTransition = rememberInfiniteTransition(label = "home-status-dot")
-    val pingScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 2.5f,
-        animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Restart),
-        label = "home-status-dot-scale",
-    )
-    val pingAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Restart),
-        label = "home-status-dot-alpha",
-    )
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(20.dp, RoundedCornerShape(40.dp), spotColor = Color.Black.copy(alpha = if (isDark) 0.18f else 0.10f))
-            .clip(RoundedCornerShape(40.dp))
-            .background(if (isDark) Color(0xFF1C1C1E) else Color.White)
-            .border(1.dp, if (isDark) Color.White.copy(alpha = 0.05f) else Color.White, RoundedCornerShape(40.dp))
-            .padding(28.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 40.dp, y = (-40).dp)
-                .size(160.dp)
-                .blur(60.dp)
-                .background(Color(0xFF3B82F6).copy(alpha = if (isDark) 0.10f else 0.05f), CircleShape),
-        )
-
+    Box(modifier = Modifier.fillMaxWidth().bentoCard(isDark, cornerRadius = 24.dp, backdrop = liquidBackdrop).padding(24.dp)) {
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(contentAlignment = Alignment.Center) {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .scale(pingScale)
-                            .background(dotColor.copy(alpha = pingAlpha), CircleShape),
-                    )
-                    Box(modifier = Modifier.size(8.dp).background(dotColor, CircleShape))
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = title,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isDark) Color.White else Color.Black,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
+            // ListTile 替代臃肿的大按钮，把 Switch 嵌在右侧！
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(if (isDark) Color.White else Color.Black)
-                    .clickable { onToggleMonitoring(!monitoringEnabled) },
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppIcon(
-                    icon = if (monitoringEnabled) AppIconId.Close else AppIconId.Play,
-                    contentDescription = null,
-                    tint = if (isDark) Color.Black else Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (monitoringEnabled) "停止监听服务" else "启动监听服务",
-                    color = if (isDark) Color.Black else Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Black,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            SmallActionButton(
-                title = "权限设置",
-                icon = AppIconId.Settings,
-                isDark = isDark,
-                liquidBackdrop = liquidBackdrop,
                 modifier = Modifier.fillMaxWidth(),
-                onClick = onOpenSettings,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SmallActionButton(
-    title: String,
-    icon: AppIconId,
-    isDark: Boolean,
-    liquidBackdrop: Backdrop,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = modifier
-            .height(60.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(if (isDark) Color.White.copy(alpha = 0.06f) else Color(0xFFF5F5F7))
-            .clickable(onClick = onClick),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AppIcon(
-            icon = icon,
-            contentDescription = null,
-            tint = if (isDark) Color.LightGray else Color.DarkGray,
-            modifier = Modifier.size(20.dp).alpha(0.7f),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = title,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isDark) Color.LightGray else Color.DarkGray,
-        )
-    }
-}
-
-@Composable
-private fun CurrentTemplateCard(
-    uiState: MainUiState,
-    isDark: Boolean,
-    onOpenTemplates: () -> Unit,
-    onSelectTemplate: (String) -> Unit,
-) {
-    val template = uiState.selectedTemplate
-    val resolution = template?.let {
-        "${it.outputWidth.takeIf { width -> width > 0 } ?: it.screenRect.width} × ${it.outputHeight.takeIf { height -> height > 0 } ?: it.screenRect.height}"
-    } ?: "暂无模板"
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(15.dp, RoundedCornerShape(40.dp), spotColor = Color.Black.copy(alpha = if (isDark) 0.16f else 0.05f))
-            .clip(RoundedCornerShape(40.dp))
-            .background(if (isDark) Color(0xFF1C1C1E) else Color.White)
-            .clickable {
-                if (template != null) {
-                    onSelectTemplate(template.id)
-                } else {
-                    onOpenTemplates()
-                }
-            }
-            .padding(28.dp),
-    ) {
-        Column {
-            Row(
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = template?.name ?: "暂无模板",
-                        fontSize = 24.sp,
-                        lineHeight = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isDark) Color.White else Color.Black,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Badge(if (template?.isBuiltIn == false) "用户定制" else "内置模板", Color(0xFF007AFF))
-                        Badge(resolution, Color.Gray)
-                    }
+                    Text(text = title, style = AppTypography.titleMedium, color = ShellColors.textPrimary(isDark))
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(text = subtitle, style = AppTypography.bodyMedium, color = ShellColors.textSecondary(isDark))
                 }
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Color(0xFF007AFF).copy(alpha = 0.10f), RoundedCornerShape(16.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AppIcon(
-                        icon = AppIconId.Template,
-                        contentDescription = null,
-                        tint = Color(0xFF007AFF),
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
+                
+                BentoSwitch(
+                    checked = monitoringEnabled,
+                    onCheckedChange = { onToggleMonitoring(it) },
+                    modifier = Modifier.padding(start = 16.dp),
+                    darkTheme = isDark,
+                    backdrop = liquidBackdrop
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            if (template != null) {
-                TemplatePreviewThumbnail(
-                    previewPath = template.previewAsset,
-                    contentDescription = template.name,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(160.dp),
-                    cornerRadius = 0.dp,
-                    imagePadding = 0.dp,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecentLogCard(
-    uiState: MainUiState,
-    isDark: Boolean,
-) {
-    val result = uiState.lastProcessingResult
-    val status = result?.status
-    val color = when (status) {
-        ProcessingStatus.Success -> Color(0xFF10B981)
-        ProcessingStatus.Failed -> Color(0xFFFF3B30)
-        ProcessingStatus.Skipped -> Color(0xFFFF9500)
-        null -> Color.Gray
-    }
-    val statusText = when (status) {
-        ProcessingStatus.Success -> "SUCCESS"
-        ProcessingStatus.Failed -> "FAILED"
-        ProcessingStatus.Skipped -> "SKIPPED"
-        null -> "EMPTY"
-    }
-    val infiniteTransition = rememberInfiniteTransition(label = "recent-log-pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.4f,
-        animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Reverse),
-        label = "recent-log-pulse-alpha",
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(15.dp, RoundedCornerShape(40.dp), spotColor = Color.Black.copy(alpha = if (isDark) 0.16f else 0.05f))
-            .clip(RoundedCornerShape(40.dp))
-            .background(if (isDark) Color(0xFF1C1C1E) else Color.White)
-            .padding(28.dp),
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "最近处理记录",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    letterSpacing = 1.sp,
-                )
+            // Sub-actions 
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                // Secondary Settings Trigger
                 Row(
-                    modifier = Modifier
-                        .background(color.copy(alpha = 0.10f), CircleShape)
-                        .border(1.dp, color.copy(alpha = 0.20f), CircleShape)
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onOpenSettings() }.alpha(0.6f),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(modifier = Modifier.size(8.dp).alpha(pulseAlpha).background(color, CircleShape))
+                    AppIcon(
+                        icon = AppIconId.Settings,
+                        contentDescription = "Settings",
+                        tint = ShellColors.textPrimary(isDark),
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(statusText, color = color, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text(stringResource(R.string.home_configuration), style = AppTypography.bodyMedium, color = ShellColors.textPrimary(isDark))
+                }
+                
+                if (!hasPerms) {
+                    Text("! Requires Auth", style = AppTypography.labelMedium, color = ShellColors.criticalOrange)
                 }
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            LogDetailRow("触发来源", if (result == null) "暂无记录" else "file_observer", isDark)
-            LogDetailRow("原图处理", if (uiState.settings.autoDeleteOriginal) "已删除原图" else "保留原图", isDark)
-            result?.processedAtMillis?.let {
-                LogDetailRow("处理时间", TimeUtils.formatTimestamp(it), isDark)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(if (isDark) Color.Black.copy(alpha = 0.4f) else Color(0xFFF9F9FB), RoundedCornerShape(16.dp))
-                    .padding(12.dp),
-            ) {
-                Text(
-                    text = result?.sourcePath?.substringAfterLast('/') ?: "等待下一次截图处理",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
     }
 }
 
 @Composable
-private fun LogDetailRow(label: String, value: String, isDark: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
-        Text(value, fontSize = 14.sp, color = if (isDark) Color.White else Color.Black, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun Badge(text: String, color: Color) {
-    Box(
-        modifier = Modifier
-            .background(color.copy(alpha = 0.10f), RoundedCornerShape(8.dp))
-            .border(1.dp, color.copy(alpha = 0.20f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+private fun RecentLogCard(uiState: MainUiState, isDark: Boolean, liquidBackdrop: Backdrop) {
+    val result = uiState.lastProcessingResult
+    
+    Box(modifier = Modifier.fillMaxWidth().bentoCard(isDark, cornerRadius = 24.dp, backdrop = liquidBackdrop).padding(24.dp)) {
+        Column {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(text = stringResource(R.string.home_activity_log), style = AppTypography.labelMedium, color = ShellColors.textTertiary(isDark))
+                if (result?.status == ProcessingStatus.Failed) {
+                    Text("Failed", style = AppTypography.labelMedium, color = ShellColors.criticalRed)
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            if (result == null) {
+                Text(stringResource(R.string.home_no_activity), style = AppTypography.bodyMedium, color = ShellColors.textSecondary(isDark))
+            } else {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Source", style = AppTypography.bodyMedium, color = ShellColors.textSecondary(isDark))
+                    Text("file_observer", style = AppTypography.bodyMedium, color = ShellColors.textPrimary(isDark))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Time", style = AppTypography.bodyMedium, color = ShellColors.textSecondary(isDark))
+                    Text(TimeUtils.formatTimestamp(result.processedAtMillis), style = AppTypography.bodyMedium, color = ShellColors.textPrimary(isDark))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Muted file path container
+                Box(modifier = Modifier.fillMaxWidth().ghostPill(isDark)) {
+                    Text(
+                        text = result.sourcePath.substringAfterLast('/'),
+                        style = AppTypography.labelMedium,
+                        color = ShellColors.textSecondary(isDark),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }

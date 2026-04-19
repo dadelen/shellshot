@@ -139,12 +139,12 @@ fun AppBackdrop(
 ) {
     val colors = MaterialTheme.shellShotTokens.colors
     val darkBackdrop = colors.backgroundPrimary.luminance() < 0.1f
-    val topLightAlpha = if (darkBackdrop) 0.10f else 0.20f
-    val blueGlowAlpha = if (darkBackdrop) 0.025f else 0.08f
-    val pinkGlowAlpha = if (darkBackdrop) 0.0f else 0.14f
-    val violetGlowAlpha = if (darkBackdrop) 0.04f else 0.18f
-    val bottomBlueAlpha = if (darkBackdrop) 0.0f else 0.08f
-    val centerWhiteAlpha = if (darkBackdrop) 0.03f else 0.12f
+    val topLightAlpha = if (darkBackdrop) 0.10f else 0.14f
+    val blueGlowAlpha = if (darkBackdrop) 0.025f else 0.06f
+    val pinkGlowAlpha = if (darkBackdrop) 0.0f else 0.10f
+    val violetGlowAlpha = if (darkBackdrop) 0.04f else 0.13f
+    val bottomBlueAlpha = if (darkBackdrop) 0.0f else 0.055f
+    val centerWhiteAlpha = if (darkBackdrop) 0.03f else 0.07f
 
     Box(
         modifier = modifier.background(
@@ -221,7 +221,7 @@ fun AppBackdrop(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = if (darkBackdrop) 0.06f else 0.34f),
+                            Color.White.copy(alpha = if (darkBackdrop) 0.06f else 0.22f),
                             Color.Transparent,
                         ),
                     ),
@@ -233,9 +233,9 @@ fun AppBackdrop(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = if (darkBackdrop) 0.02f else 0.08f),
+                            Color.White.copy(alpha = if (darkBackdrop) 0.02f else 0.04f),
                             Color.Transparent,
-                            colors.backgroundSecondary.copy(alpha = if (darkBackdrop) 0.04f else 0.14f),
+                            colors.backgroundSecondary.copy(alpha = if (darkBackdrop) 0.04f else 0.24f),
                         ),
                     ),
                 ),
@@ -247,7 +247,7 @@ fun AppBackdrop(
                     val primarySweep = Brush.linearGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.White.copy(alpha = if (darkBackdrop) 0.04f else 0.32f),
+                            Color.White.copy(alpha = if (darkBackdrop) 0.04f else 0.18f),
                             Color.Transparent,
                         ),
                         start = Offset(x = size.width * 0.18f, y = 0f),
@@ -277,7 +277,7 @@ fun AppBackdrop(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            colors.backgroundSecondary.copy(alpha = if (darkBackdrop) 0.02f else 0.18f),
+                            colors.backgroundSecondary.copy(alpha = if (darkBackdrop) 0.02f else 0.26f),
                         ),
                     ),
                 ),
@@ -1029,10 +1029,11 @@ fun SettingToggleRow(
                 )
             }
         }
-        LiquidGlassSwitch(
+        BentoSwitch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             enabled = enabled,
+            darkTheme = androidx.compose.material3.MaterialTheme.colorScheme.background.red < 0.5f
         )
     }
 }
@@ -1584,3 +1585,5 @@ private fun BackgroundWash(
 }
 
 private val PremiumMotionEasing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+
+

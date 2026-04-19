@@ -67,7 +67,7 @@ fun ShellShotApp(
     var templateDetailOpen by rememberSaveable { mutableStateOf(false) }
     val appBackdrop = rememberLayerBackdrop()
     val controlBackdrop = rememberCanvasBackdrop {
-        drawRect(if (darkTheme) Color.Black else Color(0xFFF2F2F7))
+        drawRect(if (darkTheme) Color.Black else Color(0xFFE8EAEE))
         drawCircle(
             color = Color(0xFF007AFF).copy(alpha = if (darkTheme) 0.06f else 0.08f),
             radius = size.minDimension * 0.55f,
@@ -157,7 +157,7 @@ fun ShellShotApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (darkTheme) Color.Black else Color(0xFFEBEDF0)),
+            .background(if (darkTheme) Color.Black else Color(0xFFE8EAEE)),
     ) {
         Box(
             modifier = Modifier
@@ -172,23 +172,23 @@ fun ShellShotApp(
                 transitionSpec = {
                     (
                         fadeIn(
-                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
                         ) + slideInVertically(
-                            initialOffsetY = { it / 8 },
-                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                            initialOffsetY = { 12 },
+                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
                         ) + scaleIn(
-                            initialScale = 0.98f,
-                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                            initialScale = 0.995f,
+                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
                         )
                     ).togetherWith(
                         fadeOut(
-                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
                         ) + slideOutVertically(
-                            targetOffsetY = { -it / 8 },
-                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            targetOffsetY = { -12 },
+                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
                         ) + scaleOut(
-                            targetScale = 0.98f,
-                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            targetScale = 0.995f,
+                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
                         )
                     ).using(SizeTransform(clip = false))
                 },
@@ -217,6 +217,9 @@ fun ShellShotApp(
                         onUploadTemplateImage = { uploadTemplateImageLauncher.launch(arrayOf("image/*")) },
                         onDeleteTemplate = viewModel::deleteTemplate,
                         onUpdateImportName = viewModel::updateTemplateImportName,
+                        onUpdateCalibration = viewModel::updateTemplateCalibration,
+                        onResetCalibration = viewModel::resetTemplateCalibration,
+                        onToggleCalibrationGuides = viewModel::setTemplateCalibrationGuidesVisible,
                         onConfirmImport = viewModel::confirmTemplateImport,
                         onCancelImport = viewModel::cancelTemplateImport,
                         onDismissImportAlert = viewModel::dismissTemplateImportAlert,

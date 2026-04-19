@@ -114,7 +114,8 @@ fun LogScreen(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
+            .background(if (darkTheme) Color(0xFF050507) else Color(0xFFF5F6F8))
+            .padding(horizontal = 18.dp),
         contentPadding = PaddingValues(top = 64.dp, bottom = 132.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -233,37 +234,49 @@ private fun LogCard(
     log: LogEntry,
     darkTheme: Boolean,
 ) {
-    val color = when (log.level) {
-        LogLevel.Debug -> Color(0xFF007AFF)
-        LogLevel.Error -> Color(0xFFFF3B30)
-    }
-    val typeLabel = when (log.level) {
-        LogLevel.Debug -> "信息"
-        LogLevel.Error -> "错误"
-    }
+    val normalizedForType = normalizeLogText(log.message)
+    val typeLabel = logTypeLabel(normalizedForType, log.level)
+    val color = logTypeColor(typeLabel)
     val messageLines = log.message.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()
     val normalizedMessage = normalizeLogText(messageLines.firstOrNull().orEmpty())
     val title = compactLogTitle(normalizedMessage).ifBlank { typeLabel }
     val detail = compactLogDetail(normalizedMessage, messageLines.drop(1), log.level)
-    val shape = RoundedCornerShape(40.dp)
+    val shape = RoundedCornerShape(24.dp)
 
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(8.dp, shape, spotColor = Color.Black.copy(alpha = if (darkTheme) 0.10f else 0.03f))
-            .clip(shape)
-            .background(if (darkTheme) Color(0xFF1C1C1E) else Color.White)
-            .border(
-                1.dp,
-                if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E5EA).copy(alpha = 0.4f),
-                shape,
-            )
-            .padding(20.dp),
+            .padding(horizontal = 2.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(top = 18.dp),
+        ) {
+            Box(modifier = Modifier.size(9.dp).background(color, CircleShape))
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .padding(top = 4.dp)
+                    .size(width = 1.dp, height = 86.dp)
+                    .background(if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFDDE1E8)),
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .shadow(6.dp, shape, spotColor = Color.Black.copy(alpha = if (darkTheme) 0.26f else 0.05f))
+                .clip(shape)
+                .background(if (darkTheme) Color(0xFF17181C) else Color.White)
+                .border(
+                    1.dp,
+                    if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E7EB).copy(alpha = 0.62f),
+                    shape,
+                )
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
-                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = normalizeModuleName(log.tag),
                     fontSize = 15.sp,
@@ -311,6 +324,23 @@ private fun LogCard(
             )
         }
     }
+}
+
+private fun logTypeLabel(message: String, level: LogLevel): String = when {
+    message.contains("删除", ignoreCase = true) && message.contains("失败", ignoreCase = true) -> "删除失败"
+    message.contains("合成失败", ignoreCase = true) || message.contains("ComposeFailed", ignoreCase = true) -> "合成失败"
+    message.contains("保存失败", ignoreCase = true) || message.contains("SaveFailed", ignoreCase = true) -> "保存失败"
+    message.contains("跳过", ignoreCase = true) || message.contains("Skipped", ignoreCase = true) -> "跳过"
+    message.contains("成功", ignoreCase = true) || message.contains("Success", ignoreCase = true) -> "成功"
+    level == LogLevel.Error -> "错误"
+    else -> "信息"
+}
+
+private fun logTypeColor(label: String): Color = when (label) {
+    "成功" -> Color(0xFF34C759)
+    "跳过" -> Color(0xFFFFB340)
+    "删除失败", "合成失败", "保存失败", "错误" -> Color(0xFFFF453A)
+    else -> Color(0xFF007AFF)
 }
 
 @Composable
@@ -364,8 +394,18 @@ private fun normalizeModuleName(source: String): String = when (source.substring
 }
 
 private fun compactLogTitle(source: String): String {
+    if (source.startsWith("套壳成功", ignoreCase = true)) return "套壳成功"
+    if (source.startsWith("任务终态失败", ignoreCase = true)) return "处理失败"
+    if (source.startsWith("任务待重试", ignoreCase = true)) return "等待重试"
+    if (source.startsWith("任务跳过", ignoreCase = true)) return "已跳过"
+    if (source.startsWith("合成后验警告", ignoreCase = true)) return "合成检查提醒"
+
     return source
         .substringBefore(" reason=", source)
+        .substringBefore(" path=", source)
+        .substringBefore(" output=", source)
+        .substringBefore(" taskPath=", source)
+        .substringBefore(" candidatePath=", source)
         .substringBefore(" explicitStop=", source)
         .substringBefore(" thread=", source)
         .substringBefore(" at com.example", source)
@@ -379,7 +419,7 @@ private fun compactLogDetail(
     extraLines: List<String>,
     level: LogLevel,
 ): String? {
-    val inlineDetail = listOf("reason=", "explicitStop=", "thread=")
+    val inlineDetail = listOf("reason=", "basis=", "deleteOriginal=", "explicitStop=", "thread=")
         .firstNotNullOfOrNull { key ->
             normalizedFirstLine.substringAfter(key, missingDelimiterValue = "").takeIf { it.isNotBlank() }?.let {
                 "$key$it"
@@ -388,7 +428,9 @@ private fun compactLogDetail(
     val multilineDetail = extraLines.joinToString(" ") { normalizeLogText(it) }.trim()
     return when {
         multilineDetail.isNotBlank() -> multilineDetail
+        normalizedFirstLine.startsWith("套壳成功", ignoreCase = true) -> null
         level == LogLevel.Error && inlineDetail != null -> inlineDetail
+        inlineDetail != null && normalizedFirstLine.startsWith("任务", ignoreCase = true) -> inlineDetail
         level == LogLevel.Error && normalizedFirstLine.length > 48 -> normalizedFirstLine
         else -> null
     }

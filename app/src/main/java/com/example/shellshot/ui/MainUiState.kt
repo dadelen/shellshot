@@ -10,6 +10,7 @@ import com.example.shellshot.media.ScreenshotDirectoryRecommendation
 import com.example.shellshot.media.ScreenshotDirectories
 import com.example.shellshot.service.AutoShellMode
 import com.example.shellshot.template.ShellTemplate
+import com.example.shellshot.template.DeviceCaptureProfile
 import com.example.shellshot.template.TemplateImportDraft
 
 data class TemplateImportAlert(
@@ -38,6 +39,7 @@ data class MainUiState(
     val degradedMode: Boolean = false,
     val watchedDirectories: List<String> = emptyList(),
     val templates: List<ShellTemplate> = emptyList(),
+    val currentDeviceCaptureProfile: DeviceCaptureProfile? = null,
     val templateImportDraft: TemplateImportDraft? = null,
     val templateImportInProgress: Boolean = false,
     val templateImportAlert: TemplateImportAlert? = null,

@@ -1,8 +1,11 @@
 {
   "id": "center_hole_black_phone",
   "name": "Center Hole Black Frame",
+  "templateVersion": 3,
   "frameAsset": "templates/center_hole_black_phone/frame.png",
   "previewAsset": "templates/center_hole_black_phone/preview.jpg",
+  "logicalWidth": 1000,
+  "logicalHeight": 1800,
   "outputWidth": 1000,
   "outputHeight": 1800,
   "screenRect": {
@@ -13,6 +16,30 @@
   },
   "cornerRadius": 52,
   "screenMaskBitmap": "templates/center_hole_black_phone/screen_mask.png",
+  "visibleBounds": {
+    "left": 152,
+    "top": 142,
+    "right": 843,
+    "bottom": 1661
+  },
+  "safeTopBand": {
+    "left": 152,
+    "top": 142,
+    "right": 843,
+    "bottom": 227
+  },
+  "contentClipRect": {
+    "left": 153,
+    "top": 143,
+    "right": 841,
+    "bottom": 1659
+  },
+  "topSuppressionRect": {
+    "left": 405,
+    "top": 155,
+    "right": 591,
+    "bottom": 223
+  },
   "templateTopFeature": {
     "type": "PUNCH_HOLE",
     "centerX": 498,
@@ -33,6 +60,10 @@
     }
   ],
   "contentOverscanPx": 2.5,
+  "purity": {
+    "overallScore": 1.0,
+    "warnings": []
+  },
   "backgroundColor": "#00000000",
   "scaleMode": "CENTER_CROP"
 }

@@ -12,12 +12,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,6 +31,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -45,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,9 +70,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -82,11 +89,13 @@ import com.example.shellshot.ui.MainUiState
 import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.TemplatePreviewThumbnail
+import com.example.shellshot.ui.components.bentoCard
+import com.example.shellshot.ui.theme.AppTypography
+import com.example.shellshot.ui.theme.ShellColors
+import com.example.shellshot.R
+import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private val TemplateBlue = Color(0xFF007AFF)
-private val TemplateRed = Color(0xFFFF3B30)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -97,13 +106,17 @@ fun TemplateScreen(
     onUploadTemplateImage: () -> Unit,
     onDeleteTemplate: (String) -> Unit,
     onUpdateImportName: (String) -> Unit,
+    onUpdateCalibration: (centerX: Float, centerY: Float, width: Float, cornerRadius: Float) -> Unit,
+    onResetCalibration: () -> Unit,
+    onToggleCalibrationGuides: (Boolean) -> Unit,
     onConfirmImport: () -> Unit,
     onCancelImport: () -> Unit,
     onDismissImportAlert: () -> Unit,
     onCancelPage: () -> Unit,
     onDetailToggle: (Boolean) -> Unit = {},
 ) {
-    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val isDark = androidx.compose.material3.MaterialTheme.colorScheme.background.red < 0.5f
+
     val activeTemplate = uiState.selectedTemplate
     val otherTemplates = uiState.templates.filter { it.id != activeTemplate?.id }
     var detailTemplate by remember { mutableStateOf<ShellTemplate?>(null) }
@@ -113,7 +126,6 @@ fun TemplateScreen(
     var deletingTemplateId by remember { mutableStateOf<String?>(null) }
     var detailSourceY by remember { mutableStateOf<Dp?>(null) }
     val templateCenterYById = remember { mutableStateMapOf<String, Dp>() }
-    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
     fun openDetail(template: ShellTemplate) {
@@ -148,7 +160,7 @@ fun TemplateScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (darkTheme) Color.Black else Color(0xFFF2F2F7)),
+            .background(ShellColors.background(isDark)),
     ) {
         AnimatedVisibility(
             visible = pageVisible,
@@ -161,7 +173,7 @@ fun TemplateScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = 24.dp),
             ) {
                     Row(
                         modifier = Modifier
@@ -171,34 +183,21 @@ fun TemplateScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "模板",
-                            fontSize = 34.sp,
-                            lineHeight = 38.sp,
-                            fontWeight = FontWeight.Black,
-                            color = if (darkTheme) Color.White else Color.Black,
+                            text = stringResource(R.string.templates_title),
+                            style = AppTypography.displayLarge,
+                            color = ShellColors.textPrimary(isDark),
                         )
                         IconButton(
                             onClick = onUploadTemplateImage,
                             modifier = Modifier
                                 .size(44.dp)
-                                .shadow(
-                                    elevation = 4.dp,
-                                    shape = CircleShape,
-                                    ambientColor = Color.Black.copy(alpha = 0.10f),
-                                    spotColor = Color.Black.copy(alpha = 0.10f),
-                                )
-                                .background(if (darkTheme) Color(0xFF1C1C1E) else Color.White, CircleShape)
-                                .border(
-                                    width = 1.dp,
-                                    color = if (darkTheme) Color.White.copy(alpha = 0.10f) else Color(0xFFE5E5EA),
-                                    shape = CircleShape,
-                                ),
+                                .bentoCard(isDark, cornerRadius = 22.dp)
                         ) {
                             AppIcon(
                                 icon = AppIconId.Add,
-                                contentDescription = "新增模板",
-                                tint = if (darkTheme) Color.White else Color.Black,
-                                modifier = Modifier.size(22.dp),
+                                contentDescription = "Add Template",
+                                tint = ShellColors.textPrimary(isDark),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
@@ -210,48 +209,33 @@ fun TemplateScreen(
                         contentPadding = PaddingValues(bottom = 120.dp),
                     ) {
                         item(key = "current-section") {
-                            SectionLabel("当前使用", darkTheme)
+                            SectionLabel(stringResource(R.string.templates_active_section), isDark)
                         }
                         if (activeTemplate != null) {
                             item(key = activeTemplate.id) {
                                 val isDeleting = deletingTemplateId == activeTemplate.id
-                                val deleteOffsetY by animateDpAsState(
-                                    targetValue = if (isDeleting) 320.dp else 0.dp,
-                                    animationSpec = tween(360),
-                                    label = "active-template-delete-y-${activeTemplate.id}",
-                                )
-                                val deleteAlpha by animateFloatAsState(
-                                    targetValue = if (isDeleting) 0f else 1f,
-                                    animationSpec = tween(260),
-                                    label = "active-template-delete-alpha-${activeTemplate.id}",
-                                )
-                                val deleteScale by animateFloatAsState(
-                                    targetValue = if (isDeleting) 0.92f else 1f,
-                                    animationSpec = tween(320),
-                                    label = "active-template-delete-scale-${activeTemplate.id}",
-                                )
-                                val sourceAlpha by animateFloatAsState(
-                                    targetValue = if (detailVisible && detailTemplate?.id == activeTemplate.id) 0f else 1f,
-                                    animationSpec = tween(160),
-                                    label = "active-template-source-alpha-${activeTemplate.id}",
-                                )
+                                val deleteOffsetY by animateDpAsState(targetValue = if (isDeleting) 320.dp else 0.dp, animationSpec = tween(360), label = "delete-y")
+                                val deleteAlpha by animateFloatAsState(targetValue = if (isDeleting) 0f else 1f, animationSpec = tween(260), label = "delete-alpha")
+                                val deleteScale by animateFloatAsState(targetValue = if (isDeleting) 0.92f else 1f, animationSpec = tween(320), label = "delete-scale")
+                                val sourceAlpha by animateFloatAsState(targetValue = if (detailVisible && detailTemplate?.id == activeTemplate.id) 0f else 1f, animationSpec = tween(160), label = "source-alpha")
 
                                 TemplateCard(
                                     template = activeTemplate,
                                     isActive = true,
-                            darkTheme = darkTheme,
-                            modifier = Modifier
-                                .animateItem()
-                                .offset(y = deleteOffsetY)
-                                .alpha(deleteAlpha * sourceAlpha)
-                                .scale(deleteScale),
-                            onClick = { openDetail(activeTemplate) },
-                            onCenterYChanged = { centerY -> templateCenterYById[activeTemplate.id] = centerY },
-                        )
+                                    darkTheme = isDark,
+                                    modifier = Modifier
+                                        .animateItem()
+                                        .offset(y = deleteOffsetY)
+                                        .alpha(deleteAlpha * sourceAlpha)
+                                        .scale(deleteScale),
+                                    onClick = { openDetail(activeTemplate) },
+                                    onCenterYChanged = { centerY -> templateCenterYById[activeTemplate.id] = centerY },
+                                    needsRecalibration = activeTemplate.needsRecalibration(uiState),
+                                )
                             }
                         } else {
                             item(key = "empty-current") {
-                                EmptyTemplateCard(darkTheme = darkTheme)
+                                EmptyTemplateCard(darkTheme = isDark, text = stringResource(R.string.templates_no_templates))
                             }
                         }
 
@@ -259,14 +243,14 @@ fun TemplateScreen(
                             Spacer(modifier = Modifier.height(32.dp))
                         }
                         item(key = "backup-section") {
-                            SectionLabel("备选模板", darkTheme)
+                            SectionLabel(stringResource(R.string.templates_available_section), isDark)
                         }
 
                         if (otherTemplates.isEmpty()) {
                             item(key = "empty-backup") {
                                 EmptyTemplateCard(
-                                    darkTheme = darkTheme,
-                                    text = if (uiState.templates.isEmpty()) "当前还没有可用模板。" else "没有其他备选模板。",
+                                    darkTheme = isDark,
+                                    text = if (uiState.templates.isEmpty()) stringResource(R.string.templates_no_templates) else stringResource(R.string.templates_currently_active),
                                 )
                             }
                         } else {
@@ -274,34 +258,18 @@ fun TemplateScreen(
                                 val isDeleting = deletingTemplateId == template.id
                                 val stackOffsetY by animateDpAsState(
                                     targetValue = if (index > 0) (-24 * index).dp else 0.dp,
-                                    animationSpec = spring(stiffness = 360f, dampingRatio = 0.86f),
-                                    label = "template-stack-offset-${template.id}",
+                                    animationSpec = spring(stiffness = 400f, dampingRatio = 0.82f),
+                                    label = "stack-y"
                                 )
-                                val deleteOffsetY by animateDpAsState(
-                                    targetValue = if (isDeleting) 320.dp else 0.dp,
-                                    animationSpec = tween(360),
-                                    label = "template-delete-y-${template.id}",
-                                )
-                                val deleteAlpha by animateFloatAsState(
-                                    targetValue = if (isDeleting) 0f else 1f,
-                                    animationSpec = tween(260),
-                                    label = "template-delete-alpha-${template.id}",
-                                )
-                                val deleteScale by animateFloatAsState(
-                                    targetValue = if (isDeleting) 0.92f else 1f,
-                                    animationSpec = tween(320),
-                                    label = "template-delete-scale-${template.id}",
-                                )
-                                val sourceAlpha by animateFloatAsState(
-                                    targetValue = if (detailVisible && detailTemplate?.id == template.id) 0f else 1f,
-                                    animationSpec = tween(160),
-                                    label = "template-source-alpha-${template.id}",
-                                )
+                                val deleteOffsetY by animateDpAsState(targetValue = if (isDeleting) 320.dp else 0.dp, animationSpec = tween(360), label = "delete-y")
+                                val deleteAlpha by animateFloatAsState(targetValue = if (isDeleting) 0f else 1f, animationSpec = tween(260), label = "delete-alpha")
+                                val deleteScale by animateFloatAsState(targetValue = if (isDeleting) 0.92f else 1f, animationSpec = tween(320), label = "delete-scale")
+                                val sourceAlpha by animateFloatAsState(targetValue = if (detailVisible && detailTemplate?.id == template.id) 0f else 1f, animationSpec = tween(160), label = "source-alpha")
 
                                 TemplateCard(
                                     template = template,
                                     isActive = false,
-                                    darkTheme = darkTheme,
+                                    darkTheme = isDark,
                                     modifier = Modifier
                                         .animateItem()
                                         .zIndex(if (detailTemplate?.id == template.id && detailVisible) 100f else index.toFloat())
@@ -312,6 +280,7 @@ fun TemplateScreen(
                                     onCenterYChanged = { centerY -> templateCenterYById[template.id] = centerY },
                                     stackIndex = index,
                                     stackCount = otherTemplates.size,
+                                    needsRecalibration = template.needsRecalibration(uiState),
                                 )
                             }
                         }
@@ -323,7 +292,7 @@ fun TemplateScreen(
             TemplateDetailOverlay(
                 template = template,
                 visible = detailVisible,
-                darkTheme = darkTheme,
+                darkTheme = isDark,
                 activeTemplateId = activeTemplate?.id,
                 importInProgress = uiState.templateImportInProgress,
                 sourceCenterY = detailSourceY,
@@ -345,7 +314,11 @@ fun TemplateScreen(
         TemplateImportDialog(
             draft = draft,
             inProgress = uiState.templateImportInProgress,
+            isDark = isDark,
             onUpdateName = onUpdateImportName,
+            onUpdateCalibration = onUpdateCalibration,
+            onResetCalibration = onResetCalibration,
+            onToggleGuides = onToggleCalibrationGuides,
             onConfirm = onConfirmImport,
             onDismiss = onCancelImport,
         )
@@ -355,7 +328,8 @@ fun TemplateScreen(
         AlertDialogCard(
             title = alert.title,
             message = alert.message,
-            confirmText = "我知道了",
+            isDark = isDark,
+            confirmText = "Got it",
             onConfirm = onDismissImportAlert,
             onDismiss = onDismissImportAlert,
         )
@@ -364,7 +338,7 @@ fun TemplateScreen(
     pendingDeleteTemplate?.let { template ->
         DeleteTemplateConfirmDialog(
             template = template,
-            darkTheme = darkTheme,
+            darkTheme = isDark,
             onConfirm = {
                 pendingDeleteTemplate = null
                 scope.launch {
@@ -383,9 +357,8 @@ fun TemplateScreen(
 private fun SectionLabel(text: String, darkTheme: Boolean) {
     Text(
         text = text,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Bold,
-        color = if (darkTheme) Color(0xFFA1A1AA) else Color.Gray,
+        style = AppTypography.labelMedium,
+        color = ShellColors.textTertiary(darkTheme),
         modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
     )
 }
@@ -407,57 +380,42 @@ private fun TemplateDetailOverlay(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        val sharedElementSpring = spring<Float>(stiffness = 350f, dampingRatio = 0.93f)
-        val sharedElementSpringDp = spring<Dp>(stiffness = 350f, dampingRatio = 0.93f)
-        val transition = updateTransition(targetState = visible, label = "template-detail-shared-exit")
+        val density = LocalDensity.current
+        val screenHeight = maxHeight
+        val screenCenterY = screenHeight / 2
+
+        val startOffsetY = remember(sourceCenterY) {
+            if (sourceCenterY != null) sourceCenterY - screenCenterY else 300.dp
+        }
+
+        val sharedSpring = spring<Float>(stiffness = 350f, dampingRatio = 0.85f)
+        val sharedSpringDp = spring<Dp>(stiffness = 350f, dampingRatio = 0.85f)
+        val transition = updateTransition(targetState = visible, label = "detail-transition")
+
         val overlayAlpha by transition.animateFloat(
-            transitionSpec = { tween(durationMillis = 300) },
-            label = "template-detail-overlay-alpha",
-        ) { shown -> if (shown) 0.6f else 0f }
-        val overlayBlur by transition.animateDp(
-            transitionSpec = { tween(durationMillis = 300) },
-            label = "template-detail-overlay-blur",
-        ) { shown -> if (shown) 10.dp else 0.dp }
+            transitionSpec = { tween(durationMillis = 240) },
+            label = "overlay-alpha",
+        ) { shown -> if (shown) 1f else 0f }
+
         val cardOffsetY by transition.animateDp(
-            transitionSpec = {
-                if (targetState) sharedElementSpringDp else tween(durationMillis = 300)
-            },
-            label = "template-detail-card-y",
-        ) { shown -> if (shown) 0.dp else 300.dp }
-        val cardScaleX by transition.animateFloat(
-            transitionSpec = {
-                if (targetState) sharedElementSpring else tween(durationMillis = 300)
-            },
-            label = "template-detail-card-scale-x",
-        ) { shown -> if (shown) 1f else 0.90f }
-        val cardScaleY by transition.animateFloat(
-            transitionSpec = {
-                if (targetState) sharedElementSpring else tween(durationMillis = 300)
-            },
-            label = "template-detail-card-scale-y",
-        ) { shown -> if (shown) 1f else 0.90f }
+            transitionSpec = { if (targetState) sharedSpringDp else tween(durationMillis = 220) },
+            label = "card-y",
+        ) { shown -> if (shown) 40.dp else startOffsetY }
+
+        val cardScale by transition.animateFloat(
+            transitionSpec = { if (targetState) sharedSpring else tween(durationMillis = 220) },
+            label = "card-scale",
+        ) { shown -> if (shown) 1f else 0.82f }
+
         val cardAlpha by transition.animateFloat(
-            transitionSpec = { tween(durationMillis = 300) },
-            label = "template-detail-card-alpha",
+            transitionSpec = { if (targetState) tween(150) else tween(150) },
+            label = "card-alpha",
         ) { shown -> if (shown) 1f else 0f }
-        val contentAlpha by transition.animateFloat(
-            transitionSpec = {
-                if (targetState) tween(durationMillis = 180, delayMillis = 120) else tween(durationMillis = 120)
-            },
-            label = "template-detail-content-alpha",
-        ) { shown -> if (shown) 1f else 0f }
-        val contentOffsetY by transition.animateDp(
-            transitionSpec = {
-                if (targetState) tween(durationMillis = 220, delayMillis = 120) else tween(durationMillis = 120)
-            },
-            label = "template-detail-content-y",
-        ) { shown -> if (shown) 0.dp else 18.dp }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = overlayAlpha))
-                .blur(overlayBlur)
+                .background(Color.Black.copy(alpha = overlayAlpha * 0.6f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -467,114 +425,122 @@ private fun TemplateDetailOverlay(
 
         Box(
             modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
                 .offset(y = cardOffsetY)
                 .graphicsLayer {
+                    scaleX = cardScale
+                    scaleY = cardScale
                     alpha = cardAlpha
-                    scaleX = cardScaleX
-                    scaleY = cardScaleY
                 }
-                .fillMaxWidth(0.88f)
-                .shadow(40.dp, RoundedCornerShape(48.dp), spotColor = Color.Black.copy(alpha = 0.18f))
-                .clip(RoundedCornerShape(48.dp))
-                .background(if (darkTheme) Color(0xFF1C1C1E) else Color.White)
-                .border(
-                    width = 1.dp,
-                    color = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(48.dp),
-                )
-                .padding(24.dp)
-                .clickable(enabled = false) {},
+                .bentoCard(darkTheme, cornerRadius = 48.dp, isElevated = true)
+                .padding(32.dp),
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TemplateCircleButton(
-                            icon = AppIconId.Delete,
-                            tint = if (template.canDelete) TemplateRed else Color.Gray,
-                            background = TemplateRed.copy(alpha = if (template.canDelete) 0.10f else 0.04f),
-                            enabled = template.canDelete && !importInProgress,
-                            contentDescription = "删除模板",
-                            onClick = onDelete,
-                        )
-                        TemplateCircleButton(
-                            icon = AppIconId.Close,
-                            tint = if (darkTheme) Color.White else Color.Gray,
-                            background = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7),
-                            contentDescription = "关闭",
-                            onClick = onClose,
-                        )
-                    }
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    TemplateCircleButton(
+                        icon = AppIconId.Delete,
+                        tint = if (template.canDelete) ShellColors.criticalRed else ShellColors.textTertiary(darkTheme),
+                        background = ShellColors.badgeBg(darkTheme),
+                        enabled = template.canDelete && !importInProgress,
+                        contentDescription = "Delete Template",
+                        onClick = onDelete,
+                    )
+                    TemplateCircleButton(
+                        icon = AppIconId.Close,
+                        tint = ShellColors.textSecondary(darkTheme),
+                        background = ShellColors.badgeBg(darkTheme),
+                        contentDescription = "Close",
+                        onClick = onClose,
+                    )
+                }
 
-                    Column(
+                Spacer(modifier = Modifier.height(28.dp))
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
                         modifier = Modifier
-                            .padding(top = 18.dp)
-                            .offset(y = contentOffsetY)
-                            .graphicsLayer { alpha = contentAlpha },
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                            .size(80.dp)
+                            .bentoCard(darkTheme, cornerRadius = 28.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
                         TemplatePreviewThumbnail(
                             previewPath = template.previewAsset,
                             contentDescription = template.name,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(150.dp),
-                            cornerRadius = 24.dp,
-                            imagePadding = 0.dp,
+                            modifier = Modifier.fillMaxSize(),
+                            cornerRadius = 28.dp,
+                            imagePadding = 4.dp,
                             selected = template.id == activeTemplateId,
                         )
+                    }
 
-                        Spacer(modifier = Modifier.height(18.dp))
-                        Text(
-                            text = template.name,
-                            fontSize = 21.sp,
-                            lineHeight = 25.sp,
-                            fontWeight = FontWeight.Black,
-                            color = if (darkTheme) Color.White else Color.Black,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    Spacer(modifier = Modifier.height(24.dp))
 
-                        Spacer(modifier = Modifier.height(22.dp))
+                    Text(
+                        text = template.name,
+                        style = AppTypography.titleLarge,
+                        color = ShellColors.textPrimary(darkTheme),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
 
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = templateResolutionLabel(template),
+                        style = AppTypography.bodyMedium,
+                        color = ShellColors.textSecondary(darkTheme),
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         DetailRow(
-                            label = "分辨率",
+                            label = stringResource(R.string.templates_resolution),
                             value = templateResolutionLabel(template),
                             darkTheme = darkTheme,
                         )
                         DetailRow(
-                            label = "模板类型",
-                            value = if (template.isBuiltIn) "内置模板" else "用户自定义",
+                            label = "Type",
+                            value = if (template.isBuiltIn) "Built-in" else "Custom",
                             darkTheme = darkTheme,
                         )
+                    }
 
-                        Spacer(modifier = Modifier.height(26.dp))
+                    Spacer(modifier = Modifier.height(28.dp))
 
                         Button(
                             onClick = onApply,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(52.dp),
+                                .height(56.dp),
                             enabled = template.id != activeTemplateId,
-                            shape = RoundedCornerShape(18.dp),
+                            shape = RoundedCornerShape(20.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = TemplateBlue,
-                                disabledContainerColor = Color(0xFFE5E5EA),
-                                disabledContentColor = Color.Gray,
+                                containerColor = ShellColors.actionBg(darkTheme),
+                                contentColor = ShellColors.actionText(darkTheme),
+                                disabledContainerColor = ShellColors.badgeBg(darkTheme),
+                                disabledContentColor = ShellColors.textTertiary(darkTheme),
                             ),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                         ) {
                             Text(
-                                text = if (template.id == activeTemplateId) "当前使用中" else "应用模板",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black,
+                                text = if (template.id == activeTemplateId) stringResource(R.string.templates_currently_active) else stringResource(R.string.templates_apply),
+                                style = AppTypography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                             )
                         }
-                    }
                 }
             }
+        }
     }
 }
 
@@ -592,7 +558,7 @@ private fun TemplateCircleButton(
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.92f else 1f,
         animationSpec = spring(stiffness = 520f, dampingRatio = 0.72f),
-        label = "template-circle-button-scale",
+        label = "btn-scale",
     )
 
     Box(
@@ -628,49 +594,23 @@ private fun TemplateCard(
     onCenterYChanged: (Dp) -> Unit = {},
     stackIndex: Int? = null,
     stackCount: Int = 0,
+    needsRecalibration: Boolean = false,
 ) {
-    val shape = RoundedCornerShape(40.dp)
     val density = LocalDensity.current
     val stacked = stackIndex != null
-    val stackDepth = stackIndex?.coerceAtMost(5) ?: 0
-    val stackInset = if (stacked) (stackDepth * 2).dp else 0.dp
-    val stackScale = if (stacked) 1f - (stackDepth * 0.003f) else 1f
-    val stackSurface = when {
-        isActive -> if (darkTheme) Color(0xFF1C1C1E) else Color.White
-        darkTheme -> Color(0xFF1C1C1E).copy(alpha = 1f - stackDepth * 0.035f)
-        else -> Color.White
-    }
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.985f else 1f,
         animationSpec = spring(stiffness = 520f, dampingRatio = 0.74f),
-        label = "template-card-press-scale-${template.id}",
+        label = "press-scale",
     )
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = stackInset)
-            .scale(pressScale * stackScale)
-            .height(if (stacked) 86.dp else 104.dp)
-            .shadow(
-                elevation = if (stacked) (22 - stackDepth).dp else 12.dp,
-                shape = shape,
-                spotColor = Color.Black.copy(alpha = if (darkTheme) 0.34f else 0.13f),
-            )
-            .clip(shape)
-            .background(stackSurface)
-            .border(
-                1.dp,
-                if (isActive) {
-                    TemplateBlue.copy(alpha = 0.22f)
-                } else if (darkTheme) {
-                    Color.White.copy(alpha = 0.08f + stackDepth * 0.015f)
-                } else {
-                    Color(0xFFE5E7EB).copy(alpha = 0.78f + stackDepth * 0.035f)
-                },
-                shape,
-            )
+            .scale(pressScale)
+            .height(if (stacked) 86.dp else 248.dp)
+            .bentoCard(darkTheme, cornerRadius = 28.dp, isElevated = !stacked)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -681,100 +621,129 @@ private fun TemplateCard(
                 onCenterYChanged(with(density) { centerY.toDp() })
             },
     ) {
-        if (stacked) {
-            Box(
+        if (!stacked) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(22.dp)
-                    .align(Alignment.TopCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = if (darkTheme) 0.18f else 0.075f),
-                                Color.Black.copy(alpha = if (darkTheme) 0.07f else 0.025f),
-                                Color.Transparent,
-                            ),
-                        ),
-                    ),
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .align(Alignment.TopCenter)
-                    .background(if (darkTheme) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.96f)),
-            )
-            Box(
-                modifier = Modifier
-                    .width((56 + stackDepth * 10).dp)
-                    .height(2.5.dp)
-                    .align(Alignment.TopCenter)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (darkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.045f)),
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                    .padding(horizontal = if (stacked) 20.dp else 22.dp, vertical = if (stacked) 16.dp else 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(if (stacked) 48.dp else 64.dp),
-                contentAlignment = Alignment.Center,
+                    .fillMaxSize()
+                    .padding(20.dp),
             ) {
-                TemplatePreviewThumbnail(
-                    previewPath = template.previewAsset,
-                    contentDescription = template.name,
-                    modifier = Modifier.fillMaxSize(),
-                    cornerRadius = if (stacked) 10.dp else 12.dp,
-                    imagePadding = 0.dp,
-                    selected = isActive,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = template.name,
+                            style = AppTypography.titleLarge,
+                            color = ShellColors.textPrimary(darkTheme),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = templateResolutionLabel(template),
+                            style = AppTypography.bodyMedium,
+                            color = ShellColors.textSecondary(darkTheme),
+                            maxLines = 1,
+                        )
+                        if (needsRecalibration) {
+                            Text(
+                                text = "需要重新标定",
+                                style = AppTypography.bodySmall,
+                                color = ShellColors.criticalRed,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ShellColors.badgeBg(darkTheme)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AppIcon(
+                            icon = AppIconId.Template,
+                            contentDescription = null,
+                            tint = ShellColors.textPrimary(darkTheme),
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(ShellColors.badgeBg(darkTheme))
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    TemplatePreviewThumbnail(
+                        previewPath = template.previewAsset,
+                        contentDescription = template.name,
+                        modifier = Modifier.fillMaxSize(),
+                        cornerRadius = 16.dp,
+                        imagePadding = 0.dp,
+                        selected = true,
+                    )
+                }
             }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier.size(48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    TemplatePreviewThumbnail(
+                        previewPath = template.previewAsset,
+                        contentDescription = template.name,
+                        modifier = Modifier.fillMaxSize(),
+                        cornerRadius = 10.dp,
+                        imagePadding = 0.dp,
+                        selected = isActive,
+                    )
+                }
 
-            Spacer(modifier = Modifier.width(if (stacked) 18.dp else 16.dp))
+                Spacer(modifier = Modifier.width(18.dp))
 
-            if (stacked) {
-                Text(
-                    text = template.name,
-                    fontSize = 17.sp,
-                    lineHeight = 21.sp,
-                    fontWeight = FontWeight.Black,
-                    color = if (darkTheme) Color.White else Color.Black,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = templateResolutionLabel(template),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
-                    color = if (darkTheme) Color(0xFFA1A1AA) else Color(0xFF9CA3AF),
-                    maxLines = 1,
-                )
-            } else {
-                Text(
-                    text = template.name,
-                    fontSize = 18.sp,
-                    lineHeight = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    color = if (darkTheme) Color.White else Color.Black,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = templateResolutionLabel(template),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Black,
-                    color = if (isActive) TemplateBlue else if (darkTheme) Color(0xFFA1A1AA) else Color(0xFF9CA3AF),
-                    maxLines = 1,
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = template.name,
+                        style = AppTypography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        color = ShellColors.textPrimary(darkTheme),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = templateResolutionLabel(template),
+                        style = AppTypography.bodyMedium,
+                        color = ShellColors.textSecondary(darkTheme),
+                        maxLines = 1,
+                    )
+                    if (needsRecalibration) {
+                        Text(
+                            text = "需要重新标定",
+                            style = AppTypography.bodySmall,
+                            color = ShellColors.criticalRed,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+private fun ShellTemplate.needsRecalibration(uiState: MainUiState): Boolean {
+    val saved = calibration?.captureProfile ?: return !isBuiltIn
+    val current = uiState.currentDeviceCaptureProfile ?: return false
+    return saved.hasMeaningfulChangeFrom(current)
 }
 
 @Composable
@@ -782,13 +751,30 @@ private fun DetailRow(label: String, value: String, darkTheme: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
-            .background(if (darkTheme) Color.White.copy(alpha = 0.06f) else Color(0xFFF9F9FB), RoundedCornerShape(12.dp))
-            .padding(16.dp),
+            .clip(RoundedCornerShape(16.dp))
+            .background(ShellColors.badgeBg(darkTheme))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = if (darkTheme) Color(0xFFA1A1AA) else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Text(value, color = if (darkTheme) Color.White else Color.Black, fontWeight = FontWeight.Black, fontSize = 14.sp)
+        Text(label, style = AppTypography.bodyMedium, color = ShellColors.textSecondary(darkTheme))
+        Text(value, style = AppTypography.bodyLarge, color = ShellColors.textPrimary(darkTheme))
+    }
+}
+
+@Composable
+private fun EmptyTemplateCard(darkTheme: Boolean, text: String = "No templates available.") {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .bentoCard(darkTheme, cornerRadius = 24.dp)
+            .padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AppIcon(AppIconId.Template, contentDescription = null, tint = ShellColors.textTertiary(darkTheme), modifier = Modifier.size(22.dp))
+            Text(text, style = AppTypography.bodyMedium, color = ShellColors.textTertiary(darkTheme), modifier = Modifier.padding(start = 12.dp))
+        }
     }
 }
 
@@ -796,7 +782,11 @@ private fun DetailRow(label: String, value: String, darkTheme: Boolean) {
 private fun TemplateImportDialog(
     draft: TemplateImportDraft,
     inProgress: Boolean,
+    isDark: Boolean,
     onUpdateName: (String) -> Unit,
+    onUpdateCalibration: (centerX: Float, centerY: Float, width: Float, cornerRadius: Float) -> Unit,
+    onResetCalibration: () -> Unit,
+    onToggleGuides: (Boolean) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -804,36 +794,228 @@ private fun TemplateImportDialog(
         onDismissRequest = { if (!inProgress) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        DialogSurface(darkTheme = false, cornerRadius = 28.dp) {
-            Text("新增模板", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = if (isDark) 0.58f else 0.38f))
+                .padding(horizontal = 18.dp, vertical = 20.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.94f)
+                    .widthIn(max = 460.dp)
+                    .bentoCard(isDark, cornerRadius = 32.dp, isElevated = true)
+                    .background(if (isDark) Color(0xFF1C1C1E) else Color(0xFFF8F9FB))
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Text("标定截图显示区域", style = AppTypography.titleLarge, color = ShellColors.textPrimary(isDark))
+                    Text(
+                        "拖动半透明区域，让它覆盖未来真实截图应该显示的位置。比例已锁定为当前设备捕获基准。",
+                        style = AppTypography.bodyMedium,
+                        color = ShellColors.textSecondary(isDark),
+                    )
+                    CalibrationPreview(
+                        draft = draft,
+                        isDark = isDark,
+                        enabled = !inProgress,
+                        onUpdateCalibration = onUpdateCalibration,
+                    )
+                    CalibrationControls(
+                        draft = draft,
+                        isDark = isDark,
+                        enabled = !inProgress,
+                        onUpdateCalibration = onUpdateCalibration,
+                        onResetCalibration = onResetCalibration,
+                        onToggleGuides = onToggleGuides,
+                    )
+                    OutlinedTextField(
+                        value = draft.templateName,
+                        onValueChange = onUpdateName,
+                        label = { Text(stringResource(R.string.templates_import_name_label)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !inProgress,
+                        shape = RoundedCornerShape(18.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ShellColors.actionBg(isDark),
+                            unfocusedBorderColor = ShellColors.border(isDark),
+                        ),
+                    )
+                    Text(
+                        "基准 ${draft.captureProfile.captureWidth} × ${draft.captureProfile.captureHeight} · DPI ${draft.captureProfile.densityDpi}",
+                        style = AppTypography.bodySmall,
+                        color = ShellColors.textTertiary(isDark),
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                DialogPrimaryButton(
+                    text = if (inProgress) stringResource(R.string.templates_import_generating) else "保存标定并导入",
+                    isDark = isDark,
+                    enabled = draft.templateName.isNotBlank() && !inProgress,
+                    onClick = onConfirm,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                DialogSecondaryButton(text = stringResource(R.string.templates_cancel), isDark = isDark, enabled = !inProgress, onClick = onDismiss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalibrationPreview(
+    draft: TemplateImportDraft,
+    isDark: Boolean,
+    enabled: Boolean,
+    onUpdateCalibration: (centerX: Float, centerY: Float, width: Float, cornerRadius: Float) -> Unit,
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(320.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(ShellColors.badgeBg(isDark)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val density = LocalDensity.current
+        val canvasWidth = with(density) { maxWidth.toPx() }
+        val canvasHeight = with(density) { maxHeight.toPx() }
+        val scale = minOf(
+            canvasWidth / draft.outputWidth.toFloat().coerceAtLeast(1f),
+            canvasHeight / draft.outputHeight.toFloat().coerceAtLeast(1f),
+        )
+        val imageWidthPx = draft.outputWidth * scale
+        val imageHeightPx = draft.outputHeight * scale
+        val imageWidthDp = with(density) { imageWidthPx.toDp() }
+        val imageHeightDp = with(density) { imageHeightPx.toDp() }
+        val overlayLeftPx = (draft.overlayCenterX - draft.overlayWidth / 2f) * scale
+        val overlayTopPx = (draft.overlayCenterY - draft.overlayHeight / 2f) * scale
+        val overlayWidthPx = draft.overlayWidth * scale
+        val overlayHeightPx = draft.overlayHeight * scale
+
+        Box(
+            modifier = Modifier
+                .size(width = imageWidthDp, height = imageHeightDp),
+        ) {
             TemplatePreviewThumbnail(
                 previewPath = draft.sourceImagePath,
                 contentDescription = draft.templateName,
+                modifier = Modifier.fillMaxSize(),
+                cornerRadius = 18.dp,
+                imagePadding = 0.dp,
+            )
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                if (draft.showGuides) {
+                    val guidePaintColor = Color.White.copy(alpha = 0.32f)
+                    drawLine(guidePaintColor, start = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f), end = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height), strokeWidth = 1f)
+                    drawLine(guidePaintColor, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f), end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = 1f)
+                }
+                val rect = androidx.compose.ui.geometry.Rect(
+                    left = overlayLeftPx,
+                    top = overlayTopPx,
+                    right = overlayLeftPx + overlayWidthPx,
+                    bottom = overlayTopPx + overlayHeightPx,
+                )
+                drawRoundRect(
+                    color = Color(0xFF34C759).copy(alpha = 0.24f),
+                    topLeft = rect.topLeft,
+                    size = rect.size,
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(draft.overlayCornerRadius * scale, draft.overlayCornerRadius * scale),
+                )
+                drawRoundRect(
+                    color = Color(0xFF34C759),
+                    topLeft = rect.topLeft,
+                    size = rect.size,
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(draft.overlayCornerRadius * scale, draft.overlayCornerRadius * scale),
+                    style = Stroke(width = 3f),
+                )
+                val handleColor = Color.White
+                listOf(rect.topLeft, rect.topRight, rect.bottomLeft, rect.bottomRight).forEach { point ->
+                    drawCircle(handleColor, radius = 7f, center = point)
+                    drawCircle(Color(0xFF34C759), radius = 7f, center = point, style = Stroke(width = 2f))
+                }
+                drawCircle(
+                    color = Color(0xFFFFCC00),
+                    radius = 5f,
+                    center = androidx.compose.ui.geometry.Offset(rect.center.x, rect.center.y),
+                )
+            }
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp),
-                cornerRadius = 24.dp,
-                imagePadding = 10.dp,
+                    .matchParentSize()
+                    .pointerInput(enabled, draft.overlayCenterX, draft.overlayCenterY, draft.overlayWidth, draft.overlayCornerRadius) {
+                        if (!enabled) return@pointerInput
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            onUpdateCalibration(
+                                draft.overlayCenterX + dragAmount.x / scale,
+                                draft.overlayCenterY + dragAmount.y / scale,
+                                draft.overlayWidth,
+                                draft.overlayCornerRadius,
+                            )
+                        }
+                    },
             )
-            OutlinedTextField(
-                value = draft.templateName,
-                onValueChange = onUpdateName,
-                label = { Text("模板名称") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !inProgress,
-                shape = RoundedCornerShape(18.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = TemplateBlue.copy(alpha = 0.5f),
-                    unfocusedBorderColor = Color(0xFFE8ECF3),
-                ),
-            )
-            DialogPrimaryButton(
-                text = if (inProgress) "生成中..." else "生成模板",
-                enabled = draft.templateName.isNotBlank() && !inProgress,
-                onClick = onConfirm,
-            )
-            DialogSecondaryButton(text = "取消", enabled = !inProgress, onClick = onDismiss)
+        }
+    }
+}
+
+@Composable
+private fun CalibrationControls(
+    draft: TemplateImportDraft,
+    isDark: Boolean,
+    enabled: Boolean,
+    onUpdateCalibration: (centerX: Float, centerY: Float, width: Float, cornerRadius: Float) -> Unit,
+    onResetCalibration: () -> Unit,
+    onToggleGuides: (Boolean) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("缩放", style = AppTypography.bodyMedium, color = ShellColors.textSecondary(isDark))
+        Slider(
+            value = draft.overlayWidth,
+            onValueChange = { width ->
+                onUpdateCalibration(draft.overlayCenterX, draft.overlayCenterY, width, draft.overlayCornerRadius)
+            },
+            valueRange = 24f..draft.outputWidth.toFloat(),
+            enabled = enabled,
+        )
+        Text("圆角", style = AppTypography.bodyMedium, color = ShellColors.textSecondary(isDark))
+        Slider(
+            value = draft.overlayCornerRadius,
+            onValueChange = { radius ->
+                onUpdateCalibration(draft.overlayCenterX, draft.overlayCenterY, draft.overlayWidth, radius)
+            },
+            valueRange = 0f..(minOf(draft.overlayWidth, draft.overlayHeight) / 2f).coerceAtLeast(1f),
+            enabled = enabled,
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = onResetCalibration,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text("重置")
+            }
+            OutlinedButton(
+                onClick = { onToggleGuides(!draft.showGuides) },
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text(if (draft.showGuides) "隐藏辅助线" else "显示辅助线")
+            }
         }
     }
 }
@@ -842,15 +1024,16 @@ private fun TemplateImportDialog(
 private fun AlertDialogCard(
     title: String,
     message: String,
+    isDark: Boolean,
     confirmText: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        DialogSurface(darkTheme = false, cornerRadius = 28.dp) {
-            Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-            Text(message, fontSize = 14.sp, lineHeight = 20.sp, color = Color.Gray)
-            DialogPrimaryButton(text = confirmText, onClick = onConfirm)
+        DialogSurface(darkTheme = isDark, cornerRadius = 28.dp) {
+            Text(title, style = AppTypography.titleLarge, color = ShellColors.textPrimary(isDark))
+            Text(message, style = AppTypography.bodyMedium, color = ShellColors.textSecondary(isDark))
+            DialogPrimaryButton(text = confirmText, isDark = isDark, onClick = onConfirm)
         }
     }
 }
@@ -863,25 +1046,24 @@ private fun DeleteTemplateConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        val transition = updateTransition(targetState = true, label = "delete-confirm-overlay")
+        val transition = updateTransition(targetState = true, label = "delete-confirm")
         val overlayAlpha by transition.animateFloat(
             transitionSpec = { tween(durationMillis = 280) },
-            label = "delete-confirm-overlay-alpha",
-        ) { shown ->
-            if (shown) 0.6f else 0f
-        }
-        val overlayBlur by transition.animateDp(
-            transitionSpec = { tween(durationMillis = 320) },
-            label = "delete-confirm-overlay-blur",
-        ) { shown ->
-            if (shown) 8.dp else 0.dp
-        }
+            label = "delete-overlay-alpha",
+        ) { shown -> if (shown) 0.4f else 0f }
+        val dialogScale by transition.animateFloat(
+            transitionSpec = { spring(stiffness = 400f, dampingRatio = 0.85f) },
+            label = "delete-dialog-scale",
+        ) { shown -> if (shown) 1f else 0.95f }
+        val dialogOffsetY by transition.animateDp(
+            transitionSpec = { spring(stiffness = 400f, dampingRatio = 0.85f) },
+            label = "delete-dialog-y",
+        ) { shown -> if (shown) 0.dp else 20.dp }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = overlayAlpha))
-                .blur(overlayBlur)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -889,77 +1071,88 @@ private fun DeleteTemplateConfirmDialog(
                 ),
         )
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
             contentAlignment = Alignment.Center,
         ) {
-            DialogSurface(darkTheme = darkTheme, cornerRadius = 40.dp) {
-            Box(
+            Column(
                 modifier = Modifier
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(TemplateRed.copy(alpha = 0.10f)),
-                contentAlignment = Alignment.Center,
+                    .widthIn(max = 320.dp)
+                    .graphicsLayer {
+                        scaleX = dialogScale
+                        scaleY = dialogScale
+                        translationY = dialogOffsetY.toPx()
+                    }
+                    .bentoCard(darkTheme, cornerRadius = 32.dp, isElevated = true)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                AppIcon(
-                    icon = AppIconId.Delete,
-                    contentDescription = null,
-                    tint = TemplateRed,
-                    modifier = Modifier.size(25.dp),
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(ShellColors.badgeBg(darkTheme)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AppIcon(
+                        icon = AppIconId.Delete,
+                        contentDescription = null,
+                        tint = ShellColors.criticalRed,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "删除模板",
+                    style = AppTypography.titleLarge,
+                    color = ShellColors.textPrimary(darkTheme),
                 )
-            }
-            Text(
-                text = "确认移除模板",
-                fontSize = 22.sp,
-                lineHeight = 26.sp,
-                fontWeight = FontWeight.Black,
-                color = if (darkTheme) Color.White else Color.Black,
-            )
-            Text(
-                text = template.name,
-                fontSize = 15.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (darkTheme) Color.White.copy(alpha = 0.78f) else Color(0xFF3A3A3C),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "",
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-                color = if (darkTheme) Color(0xFFA1A1AA) else Color.Gray,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, if (darkTheme) Color.White.copy(alpha = 0.10f) else Color(0xFFE5E5EA)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (darkTheme) Color.White.copy(alpha = 0.06f) else Color(0xFFF2F2F7),
-                        contentColor = if (darkTheme) Color.White else Color.Black,
-                    ),
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "您确定删除吗？此操作不可逆",
+                    style = AppTypography.bodyMedium,
+                    color = ShellColors.textSecondary(darkTheme),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("取消", fontWeight = FontWeight.Bold)
-                }
-                Button(
-                    onClick = onConfirm,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TemplateRed),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
-                ) {
-                    Text("删除", fontWeight = FontWeight.Black)
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ShellColors.badgeBg(darkTheme),
+                            contentColor = ShellColors.textPrimary(darkTheme),
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                    ) {
+                        Text("Cancel", style = AppTypography.bodyLarge.copy(fontWeight = FontWeight.Bold))
+                    }
+                    Button(
+                        onClick = onConfirm,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ShellColors.criticalRed),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                    ) {
+                        Text("Delete", style = AppTypography.bodyLarge.copy(fontWeight = FontWeight.Bold), color = Color.White)
+                    }
                 }
             }
-        }
         }
     }
 }
@@ -975,13 +1168,8 @@ private fun DialogSurface(
             .fillMaxWidth()
             .padding(horizontal = 22.dp, vertical = 28.dp)
             .widthIn(max = 420.dp)
-            .clip(RoundedCornerShape(cornerRadius))
-            .background(if (darkTheme) Color(0xFF1C1C1E) else Color.White.copy(alpha = 0.96f))
-            .border(
-                1.dp,
-                if (darkTheme) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.92f),
-                RoundedCornerShape(cornerRadius),
-            )
+            .bentoCard(darkTheme, cornerRadius = cornerRadius, isElevated = true)
+            .background(if (darkTheme) Color(0xFF1C1C1E) else Color(0xFFF8F9FB))
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -992,6 +1180,7 @@ private fun DialogSurface(
 @Composable
 private fun DialogPrimaryButton(
     text: String,
+    isDark: Boolean,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
@@ -1000,15 +1189,19 @@ private fun DialogPrimaryButton(
         modifier = Modifier.fillMaxWidth(),
         enabled = enabled,
         shape = RoundedCornerShape(18.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = TemplateBlue),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = ShellColors.actionBg(isDark),
+            contentColor = ShellColors.actionText(isDark)
+        ),
     ) {
-        Text(text, fontWeight = FontWeight.Bold)
+        Text(text, style = AppTypography.bodyLarge.copy(fontWeight = FontWeight.Bold))
     }
 }
 
 @Composable
 private fun DialogSecondaryButton(
     text: String,
+    isDark: Boolean,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
@@ -1017,35 +1210,10 @@ private fun DialogSecondaryButton(
         modifier = Modifier.fillMaxWidth(),
         enabled = enabled,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, Color(0xFFE8ECF3)),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black),
+        border = BorderStroke(1.dp, ShellColors.border(isDark)),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = ShellColors.textPrimary(isDark)),
     ) {
-        Text(text, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun EmptyTemplateCard(
-    darkTheme: Boolean,
-    text: String = "当前还没有可用模板。",
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(40.dp))
-            .background(if (darkTheme) Color(0xFF1C1C1E) else Color.White)
-            .border(
-                1.dp,
-                if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E5EA),
-                RoundedCornerShape(40.dp),
-            )
-            .padding(22.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(AppIconId.Template, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(22.dp))
-            Text(text, color = Color.Gray, modifier = Modifier.padding(start = 10.dp))
-        }
+        Text(text, style = AppTypography.bodyLarge.copy(fontWeight = FontWeight.Bold))
     }
 }
 

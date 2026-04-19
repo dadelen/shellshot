@@ -1,7 +1,7 @@
 package com.example.shellshot.processor
 
-import android.graphics.BlendMode
 import android.graphics.Bitmap
+import android.graphics.BlendMode
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
@@ -10,11 +10,16 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import androidx.core.graphics.alpha
+import android.os.SystemClock
 import androidx.core.graphics.PathParser
+import com.example.shellshot.processor.pipeline.CalibratedComposeResolver
+import com.example.shellshot.processor.pipeline.ComposeMode
+import com.example.shellshot.processor.pipeline.CoverRectSolver
+import com.example.shellshot.processor.pipeline.GeometryResolver
+import com.example.shellshot.processor.pipeline.ResolvedGeometry
 import com.example.shellshot.template.CutoutRegion
-import com.example.shellshot.template.ScaleMode
 import com.example.shellshot.template.ScreenRect
+import com.example.shellshot.template.ScreenshotAnalysis
 import com.example.shellshot.template.ShellTemplate
 import com.example.shellshot.template.TemplateRepository
 import com.example.shellshot.template.TopFeatureAnchor
@@ -26,46 +31,46 @@ import kotlinx.coroutines.withContext
 class ShellComposer(
     private val templateRepository: TemplateRepository,
     private val logger: ShellLogger,
+    private val screenshotAnalyzer: ScreenshotAnalyzer = ScreenshotAnalyzer(),
+    private val geometryResolver: GeometryResolver = GeometryResolver(),
+    private val coverRectSolver: CoverRectSolver = CoverRectSolver(),
+    private val calibratedComposeResolver: CalibratedComposeResolver = CalibratedComposeResolver(),
 ) {
-    // Support direct bitmap-driven composition so callers that already own frame/mask bitmaps
-    // can skip asset loading and reuse the same fixed-template pipeline.
+
     suspend fun compose(
         sourceBitmap: Bitmap,
         frameBitmap: Bitmap,
         template: ShellTemplate,
         screenMaskBitmap: Bitmap? = null,
+        taskId: String? = null,
     ): Bitmap = withContext(Dispatchers.Default) {
         composeInternal(
             sourceBitmap = sourceBitmap,
             frameBitmap = frameBitmap,
             template = template,
             screenMaskBitmap = screenMaskBitmap,
+            taskId = taskId,
         )
     }
 
-    // Main app flow keeps bitmap loading outside the composer and delegates here after the
-    // screenshot has already been decoded upstream.
     suspend fun compose(
         sourceBitmap: Bitmap,
         template: ShellTemplate,
+        taskId: String? = null,
     ): Bitmap {
         val frameBitmap = templateRepository.loadFrameBitmap(template)
         val screenMaskBitmap = templateRepository.loadScreenMaskBitmap(template)
-
         try {
             return compose(
                 sourceBitmap = sourceBitmap,
                 frameBitmap = frameBitmap,
                 template = template,
                 screenMaskBitmap = screenMaskBitmap,
+                taskId = taskId,
             )
         } finally {
-            if (!frameBitmap.isRecycled) {
-                frameBitmap.recycle()
-            }
-            if (screenMaskBitmap != null && !screenMaskBitmap.isRecycled) {
-                screenMaskBitmap.recycle()
-            }
+            if (!frameBitmap.isRecycled) frameBitmap.recycle()
+            if (screenMaskBitmap != null && !screenMaskBitmap.isRecycled) screenMaskBitmap.recycle()
         }
     }
 
@@ -74,1338 +79,490 @@ class ShellComposer(
         frameBitmap: Bitmap,
         template: ShellTemplate,
         screenMaskBitmap: Bitmap?,
+        taskId: String?,
     ): Bitmap {
-        val outputSize = resolveOutputSize(template, frameBitmap)
-        val outputBitmap = Bitmap.createBitmap(
-            outputSize.width,
-            outputSize.height,
-            Bitmap.Config.ARGB_8888,
-        )
+        val startedAt = SystemClock.elapsedRealtime()
+        val outputWidth = template.outputWidth.takeIf { it > 0 } ?: frameBitmap.width
+        val outputHeight = template.outputHeight.takeIf { it > 0 } ?: frameBitmap.height
+        
+        val outputBitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(outputBitmap)
-
-        // Draw any configured background first so transparent frame edges still export cleanly.
         canvas.drawColor(parseColor(template.backgroundColor))
 
-        val geometry = resolveGeometryInOutputSpace(
-            template = template,
-            outputSize = outputSize,
+        // 1. Resolve Geometry mapping Logical Space -> Output Space
+        val geometry = geometryResolver.resolve(template, outputWidth, outputHeight)
+
+        val composeMode = if (template.calibrationEnabled) ComposeMode.STANDARD else DEFAULT_COMPOSE_MODE
+        val currentCaptureProfile = runCatching { templateRepository.currentDeviceCaptureProfile() }.getOrNull()
+        val calibrationProfileChanged = template.calibration?.captureProfile
+            ?.let { saved -> currentCaptureProfile?.let { saved.hasMeaningfulChangeFrom(it) } }
+            ?: false
+
+        // 2. Analyze Screenshot for telemetry only when calibration is available.
+        val sourceAnalysis: ScreenshotAnalysis = screenshotAnalyzer.analyze(
+            bitmap = sourceBitmap,
+            templatePrior = geometry.templateTopFeature?.let { feature ->
+                buildTopFeaturePrior(feature, geometry.visibleBounds)
+            },
         )
-        val sourceTopFeature = detectSourceTopFeature(sourceBitmap)
-        val templateTopFeature = template.templateTopFeature?.scaledToOutput(
-            template = template,
-            outputSize = outputSize,
-        )
-        val effectiveTopFeature = when (sourceTopFeature?.type) {
-            TopFeatureType.ISLAND -> sourceTopFeature
-            TopFeatureType.PUNCH_HOLE -> sourceTopFeature
-            else -> templateTopFeature
-        }
-        val contentDrawRect = calculateAlignedCoverRect(
-            sourceBitmap = sourceBitmap,
-            template = template,
-            geometry = geometry,
+        val detectedSourceTopFeature: TopFeatureAnchor? = sourceAnalysis.topFeature
+        val sourceTopFeatureIsFullyReliable = detectedSourceTopFeature
+            ?.let { isReliableSourceTopFeature(it, sourceBitmap) }
+            ?: false
+        val sourceTopFeature: TopFeatureAnchor? = detectedSourceTopFeature
+            ?.takeIf {
+                sourceTopFeatureIsFullyReliable || isReliableSourceTopFeatureForVerticalAlignment(it, sourceBitmap)
+            }
+        val renderMode = resolveTopRenderMode(
             sourceTopFeature = sourceTopFeature,
-            templateTopFeature = templateTopFeature,
-        ).alignToPixel()
-
-        val contentLayer = Bitmap.createBitmap(
-            outputSize.width,
-            outputSize.height,
-            Bitmap.Config.ARGB_8888,
+            templateTopFeature = template.templateTopFeature,
         )
-        val contentCanvas = Canvas(contentLayer)
-        val bitmapPaint = createBitmapPaint()
+        val shouldAlignTopFeature = sourceTopFeature != null && geometry.templateTopFeature != null
+        val allowTopFeatureAlignment = !template.calibrationEnabled && shouldAlignTopFeature && composeMode == ComposeMode.STANDARD
 
-        try {
-            contentCanvas.drawBitmap(sourceBitmap, null, contentDrawRect, bitmapPaint)
-            applyScreenMask(
-                contentCanvas = contentCanvas,
-                outputSize = outputSize,
+        // 3. Calibrated templates bypass aggressive runtime alignment. The saved overlay is the
+        // source of truth; top feature detection remains debug telemetry only.
+        val contentDrawRect = if (template.calibrationEnabled) {
+            calibratedComposeResolver.solve(
+                srcW = sourceBitmap.width.toFloat(),
+                srcH = sourceBitmap.height.toFloat(),
                 geometry = geometry,
-                screenMaskBitmap = screenMaskBitmap,
-                template = template,
+                overscan = template.contentOverscanPx * geometry.scaleToOutput,
+                composeMode = composeMode,
             )
-            val sourceHasTopFeature = sourceTopFeature?.type == TopFeatureType.ISLAND ||
-                sourceTopFeature?.type == TopFeatureType.PUNCH_HOLE
-            geometry.cutouts.forEach { cutout ->
-                // If the screenshot already contains a top island/hole, keep that semantic
-                // content and only suppress template cutouts in the top feature band.
-                if (!sourceHasTopFeature || !cutout.isTopFeatureCutout(geometry.screenRect)) {
-                    applyCutoutMask(
-                        contentCanvas = contentCanvas,
-                        cutout = cutout,
-                    )
-                }
-            }
-            canvas.drawBitmap(contentLayer, 0f, 0f, null)
-        } finally {
-            if (!contentLayer.isRecycled) {
-                contentLayer.recycle()
+        } else {
+            coverRectSolver.solve(
+                srcW = sourceBitmap.width.toFloat(),
+                srcH = sourceBitmap.height.toFloat(),
+                geometry = geometry,
+                sourceAnchor = sourceTopFeature,
+                targetAnchor = geometry.templateTopFeature,
+                sourceStatusBarBand = sourceAnalysis.sourceStatusBarBand,
+                overscan = template.contentOverscanPx * geometry.scaleToOutput,
+                scaleMode = template.scaleMode,
+                contentOffsetX = template.contentOffsetX * geometry.scaleX,
+                contentOffsetY = template.contentOffsetY * geometry.scaleY,
+                contentScaleAdjust = template.contentScaleAdjust,
+                alignTopFeature = allowTopFeatureAlignment,
+                alignTopFeatureX = sourceTopFeatureIsFullyReliable,
+                composeMode = composeMode,
+            )
+        }
+        val metrics = if (template.calibrationEnabled) null else coverRectSolver.lastMetrics
+        val calibratedMetrics = calibratedComposeResolver.lastMetrics
+        val sourceTopScoreX = sourceTopFeature?.let { topFeatureScoreX(it, sourceBitmap) } ?: 0f
+        val sourceTopScoreY = sourceTopFeature?.let { topFeatureScoreY(it, sourceBitmap) } ?: 0f
+        val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+        val fallbackTriggered = metrics?.topAlignmentRejected ?: false
+        val bottomLossRatio = metrics?.bottomLossRatio ?: 0f
+        logger.d(
+            TAG,
+            "合成指标 task=${taskId ?: "-"} template=${template.id} mode=$composeMode " +
+                "calibrated=${template.calibrationEnabled} profileChanged=$calibrationProfileChanged " +
+                "top=${sourceTopFeature?.type ?: "NONE"} align=$allowTopFeatureAlignment " +
+                "dy=${metrics?.appliedDy?.toInt() ?: 0} bottom=${"%.3f".format(bottomLossRatio)} " +
+                "overscan=${(calibratedMetrics?.overscanPx ?: metrics?.overscanPx ?: -1f).toInt()} " +
+                "fallback=$fallbackTriggered time=${elapsedMs}ms",
+        )
+        metrics?.let { value ->
+            if (value.bottomLossRatio > value.maxBottomLossRatio ||
+                kotlin.math.abs(value.scaleDelta) > 0.001f ||
+                kotlin.math.abs(value.appliedDy) > value.bottomReservePx
+            ) {
+                logger.d(
+                    TAG,
+                    "合成后验警告 taskId=${taskId ?: "none"} template=${template.id} " +
+                        "bottomLossRatio=${value.bottomLossRatio} maxBottomLossRatio=${value.maxBottomLossRatio} " +
+                        "baseScale=${value.baseScale} finalScale=${value.finalScale} scaleDelta=${value.scaleDelta} " +
+                        "appliedDy=${value.appliedDy} bottomReservePx=${value.bottomReservePx} fallbackTriggered=${value.topAlignmentRejected}",
+                )
             }
         }
-
-        drawFrameOverlay(
-            canvas = canvas,
-            frameBitmap = frameBitmap,
-            outputSize = outputSize,
-            templateTopFeature = templateTopFeature,
-            sourceTopFeature = sourceTopFeature,
-            contentDrawRect = contentDrawRect,
-            sourceBitmap = sourceBitmap,
-        )
         if (template.debugDrawGuides) {
-            drawDebugGuides(
-                canvas = canvas,
-                geometry = geometry,
-                contentDrawRect = contentDrawRect,
-                sourceTopFeature = sourceTopFeature,
-                templateTopFeature = templateTopFeature,
-                effectiveTopFeature = effectiveTopFeature,
-                sourceBitmap = sourceBitmap,
-            )
-        }
-        return outputBitmap
-    }
-
-    private fun resolveGeometryInOutputSpace(
-        template: ShellTemplate,
-        outputSize: OutputSize,
-    ): CompositionGeometry {
-        val screenRect = template.screenRect
-            .scaledToOutput(
-                outputWidth = outputSize.width,
-                outputHeight = outputSize.height,
-                template = template,
-            )
-            .inset(template.screenInsetPx * geometryScale(template, outputSize))
-            .coerceWithin(
-                outputWidth = outputSize.width,
-                outputHeight = outputSize.height,
-            )
-            .toRectF()
-            .outset(template.maskBleedPx * geometryScale(template, outputSize))
-            .alignToPixel()
-
-        val screenPath = buildScreenShapePath(
-            template = template,
-            outputSize = outputSize,
-            screenRect = screenRect,
-        )
-
-        val cutouts = template.cutouts.mapNotNull { cutout ->
-            resolveCutoutInOutputSpace(
-                cutout = cutout,
-                template = template,
-                outputSize = outputSize,
+            logger.d(
+                TAG,
+                "compose debug template=${template.id} version=${template.templateVersion} purity=${template.purity?.overallScore ?: -1f} " +
+                    "taskId=${taskId ?: "none"} sourceSize=${sourceBitmap.width}x${sourceBitmap.height} visibleBounds=${geometry.visibleBounds.toShortLog()} " +
+                    "calibrated=${template.calibrationEnabled} profileChanged=$calibrationProfileChanged " +
+                    "sourceTop=${sourceTopFeature?.type}:${sourceTopFeature?.centerX},${sourceTopFeature?.centerY} " +
+                    "sourceTopScore=${sourceTopFeature?.confidence ?: 0f} sourceTopScoreX=$sourceTopScoreX sourceTopScoreY=$sourceTopScoreY " +
+                    "detectedTop=${detectedSourceTopFeature?.type}:${detectedSourceTopFeature?.centerX},${detectedSourceTopFeature?.centerY} " +
+                    "templateTop=${geometry.templateTopFeature?.type}:${geometry.templateTopFeature?.centerX},${geometry.templateTopFeature?.centerY} " +
+                    "baseScale=${metrics?.baseScale ?: -1f} finalScale=${metrics?.finalScale ?: -1f} scaleDelta=${metrics?.scaleDelta ?: -1f} " +
+                    "calibratedScale=${calibratedMetrics?.scale ?: -1f} calibratedDraw=${calibratedMetrics?.drawRect?.toShortLog()} " +
+                    "recommendedOverscanPx=${metrics?.recommendedOverscanPx ?: -1f} appliedOverscanPx=${metrics?.overscanPx ?: -1f} " +
+                    "featureDx=${metrics?.featureDx ?: 0f} featureDy=${metrics?.featureDy ?: 0f} wantDx=${metrics?.wantDx ?: 0f} wantDy=${metrics?.wantDy ?: 0f} " +
+                    "appliedDx=${metrics?.appliedDx ?: 0f} appliedDy=${metrics?.appliedDy ?: 0f} bottomReservePx=${metrics?.bottomReservePx ?: 0f} bottomLossRatio=${metrics?.bottomLossRatio ?: 0f} " +
+                    "yClamp=${metrics?.yClampTriggered ?: false} topAlignRejected=${metrics?.topAlignmentRejected ?: false} coverageCorrection=${metrics?.coverageCorrectionTriggered ?: false} " +
+                    "statusBandVeto=${metrics?.statusBarBandVetoTriggered ?: false} vetoReason=${metrics?.statusBarBandVetoReason ?: "none"} " +
+                    "renderMode=$renderMode composeMode=$composeMode elapsedMs=$elapsedMs",
             )
         }
 
-        return CompositionGeometry(
-            screenRect = screenRect,
-            screenPath = screenPath,
-            cutouts = cutouts,
-            scale = geometryScale(template, outputSize),
-        )
-    }
+        val contentLayer = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
+        val contentCanvas = Canvas(contentLayer)
+        try {
+            // STEP A: contentLayer 离屏绘制 screenshot
+            contentCanvas.drawBitmap(sourceBitmap, null, contentDrawRect, createBitmapPaint())
 
-    private fun buildScreenShapePath(
-        template: ShellTemplate,
-        outputSize: OutputSize,
-        screenRect: RectF,
-    ): Path {
-        val rawPath = template.screenPath
-            ?.takeIf { it.isNotBlank() }
-            ?: template.screenMaskPath?.takeIf { it.isNotBlank() }
-
-        val path = rawPath?.let {
-            parseTemplatePath(
-                rawPath = it,
-                template = template,
-                outputSize = outputSize,
-            )
-        }
-
-        return path ?: buildRoundedRectPath(
-            screenRect = screenRect,
-            cornerRadius = template.cornerRadius * geometryScale(template, outputSize) + template.maskBleedPx * geometryScale(template, outputSize),
-        )
-    }
-
-    private fun resolveCutoutInOutputSpace(
-        cutout: CutoutRegion,
-        template: ShellTemplate,
-        outputSize: OutputSize,
-    ): ResolvedCutout? {
-        val scale = geometryScale(template, outputSize)
-        val bleed = (template.cutoutBleedPx + cutout.featherPx).coerceAtLeast(0f) * scale
-        val rect = cutout.rect?.scaledToOutput(
-            outputWidth = outputSize.width,
-            outputHeight = outputSize.height,
-            template = template,
-            )?.toRectF()?.outset(bleed)?.alignToPixel()
-        val path = cutout.pathData?.takeIf { it.isNotBlank() }?.let {
-            parseTemplatePath(
-                rawPath = it,
-                template = template,
-                outputSize = outputSize,
-            )
-        }
-
-        return when {
-            path != null -> ResolvedCutout(path = path, rect = null, bleedPx = bleed)
-            rect != null -> ResolvedCutout(path = null, rect = rect, bleedPx = bleed)
-            else -> null
-        }
-    }
-
-    private fun calculateAlignedCoverRect(
-        sourceBitmap: Bitmap,
-        template: ShellTemplate,
-        geometry: CompositionGeometry,
-        sourceTopFeature: TopFeatureAnchor?,
-        templateTopFeature: TopFeatureAnchor?,
-    ): RectF {
-        val overscan = (template.contentOverscanPx * geometry.scale).coerceAtLeast(0f)
-        val baseTarget = geometry.screenRect.outset(overscan)
-        val targetWidth = baseTarget.width()
-        val targetHeight = baseTarget.height()
-        val requestedScale = when (template.scaleMode) {
-            ScaleMode.FIT_CENTER -> minOf(targetWidth / sourceBitmap.width, targetHeight / sourceBitmap.height)
-            ScaleMode.CENTER_CROP -> maxOf(targetWidth / sourceBitmap.width, targetHeight / sourceBitmap.height)
-        } * (1f + template.contentScaleAdjust)
-        val coverScale = maxOf(
-            targetWidth / sourceBitmap.width,
-            targetHeight / sourceBitmap.height,
-        )
-        val scale = maxOf(requestedScale, coverScale)
-
-        val scaledWidth = sourceBitmap.width * scale
-        val scaledHeight = sourceBitmap.height * scale
-        val offsetX = template.contentOffsetX * geometry.scale
-        val offsetY = template.contentOffsetY * geometry.scale
-
-        val rect = RectF(
-            baseTarget.centerX() - scaledWidth / 2f,
-            baseTarget.centerY() - scaledHeight / 2f,
-            baseTarget.centerX() + scaledWidth / 2f,
-            baseTarget.centerY() + scaledHeight / 2f,
-        )
-
-        val sourceFeature = sourceTopFeature?.takeIf {
-            it.type == TopFeatureType.ISLAND || it.type == TopFeatureType.PUNCH_HOLE
-        }
-        if (sourceFeature != null && templateTopFeature != null) {
-            val mappedSourceCenterX = rect.left + sourceFeature.centerX * scale
-            val mappedSourceCenterY = rect.top + sourceFeature.centerY * scale
-            rect.offset(
-                templateTopFeature.centerX - mappedSourceCenterX,
-                templateTopFeature.centerY - mappedSourceCenterY,
-            )
-        }
-
-        rect.offset(offsetX, offsetY)
-        return rect.clampToCover(baseTarget)
-    }
-
-    private fun detectSourceTopFeature(sourceBitmap: Bitmap): TopFeatureAnchor? {
-        if (sourceBitmap.width <= 0 || sourceBitmap.height <= 0) {
-            return null
-        }
-
-        val scanWidth = sourceBitmap.width
-        val scanHeight = (sourceBitmap.height * TOP_FEATURE_SCAN_HEIGHT_RATIO)
-            .toInt()
-            .coerceIn(1, sourceBitmap.height)
-        val pixels = IntArray(scanWidth * scanHeight)
-        sourceBitmap.getPixels(pixels, 0, scanWidth, 0, 0, scanWidth, scanHeight)
-
-        val visited = BooleanArray(pixels.size)
-        val components = mutableListOf<TopFeatureComponent>()
-        val queue = IntArray(pixels.size)
-
-        for (index in pixels.indices) {
-            if (visited[index] || !isTopFeatureDarkPixel(pixels[index])) {
-                visited[index] = true
-                continue
-            }
-
-            var head = 0
-            var tail = 0
-            queue[tail++] = index
-            visited[index] = true
-            var minX = scanWidth
-            var minY = scanHeight
-            var maxX = -1
-            var maxY = -1
-            var count = 0
-
-            while (head < tail) {
-                val current = queue[head++]
-                val x = current % scanWidth
-                val y = current / scanWidth
-                count += 1
-                if (x < minX) minX = x
-                if (y < minY) minY = y
-                if (x > maxX) maxX = x
-                if (y > maxY) maxY = y
-
-                for (dy in -1..1) {
-                    for (dx in -1..1) {
-                        if (dx == 0 && dy == 0) continue
-                        val nx = x + dx
-                        val ny = y + dy
-                        if (nx !in 0 until scanWidth || ny !in 0 until scanHeight) continue
-                        val next = ny * scanWidth + nx
-                        if (visited[next]) continue
-                        visited[next] = true
-                        if (isTopFeatureDarkPixel(pixels[next])) {
-                            queue[tail++] = next
-                        }
+            // STEP B: 动态顶部渲染模式。
+            // 模板孔/岛由 frame.png 负责最终外观。这里不再用 topSuppressionPath
+            // 对内容层做大范围 DST_OUT，避免顶部出现透明白块/白胶囊。
+            if (!template.calibrationEnabled && composeMode != ComposeMode.MINIMAL) {
+                geometry.cutouts.forEach { cutout ->
+                    if (shouldApplyTemplateCutout(renderMode, cutout, geometry)) {
+                        applyCutoutMask(contentCanvas, cutout, geometry, template)
                     }
                 }
             }
 
-            val width = maxX - minX + 1
-            val height = maxY - minY + 1
-            if (width >= TOP_FEATURE_MIN_SIZE_PX && height >= TOP_FEATURE_MIN_SIZE_PX) {
-                components += TopFeatureComponent(
-                    left = minX,
-                    top = minY,
-                    right = maxX + 1,
-                    bottom = maxY + 1,
-                    pixelCount = count,
-                    sourceWidth = scanWidth,
-                    sourceScanHeight = scanHeight,
+            // STEP C: 主屏幕 DST_IN 裁剪
+            if (screenMaskBitmap != null) {
+                val paint = if (hasMeaningfulAlpha(screenMaskBitmap)) {
+                    createAlphaMaskBitmapPaint()
+                } else {
+                    createLuminanceMaskBitmapPaint()
+                }
+                // screen_mask.png 是模板完整画布坐标，必须映射到完整输出画布。
+                // 不能再缩放进 screenRect，否则 mask 会二次压缩并造成出框/错位。
+                contentCanvas.drawBitmap(
+                    screenMaskBitmap,
+                    null,
+                    RectF(0f, 0f, outputWidth.toFloat(), outputHeight.toFloat()),
+                    paint,
                 )
+            } else {
+                contentCanvas.drawPath(geometry.screenPath, createDstInPaint())
             }
+
+            // STEP D: contentClipRect 二级硬裁剪。screenMask 负责真实屏幕形状，
+            // contentClipRect 负责再吃掉右/底/孔边可能残留的 1px 采样污染。
+            contentCanvas.drawRect(geometry.contentClipRect, createDstInPaint())
+
+            // STEP E: 主画布贴回 contentLayer。
+            canvas.drawBitmap(contentLayer, 0f, 0f, null)
+        } finally {
+            if (!contentLayer.isRecycled) contentLayer.recycle()
         }
 
-        val island = components
-            .mapNotNull { it.toIslandAnchor() }
-            .maxByOrNull { it.confidence }
-        if (island != null) {
-            return island
+        // STEP F: 模板孔下方画小黑底承接抗锯齿，最终外观由 frame.png 覆盖。
+        if (renderMode == TopRenderMode.SHOW_TEMPLATE_HOLE) {
+            drawTemplateTopFeatureUnderlay(canvas, geometry)
         }
 
-        return components
-            .mapNotNull { it.toPunchHoleAnchor() }
-            .maxByOrNull { it.confidence }
+        // STEP G: 最后叠加 frame overlay
+        canvas.drawBitmap(frameBitmap, null, RectF(0f, 0f, outputWidth.toFloat(), outputHeight.toFloat()), createBitmapPaint())
+
+        if (template.debugDrawGuides) {
+            drawDebugGuides(
+                canvas = canvas,
+                geometry = geometry,
+                drawRect = contentDrawRect,
+                sourceFeature = sourceTopFeature,
+                sourceStatusBarBand = sourceAnalysis.sourceStatusBarBand,
+                sourceBitmap = sourceBitmap,
+            )
+        }
+
+        return outputBitmap
     }
 
-    private fun isTopFeatureDarkPixel(color: Int): Boolean {
-        if (Color.alpha(color) < 180) {
+    private fun resolveTopRenderMode(
+        sourceTopFeature: TopFeatureAnchor?,
+        templateTopFeature: TopFeatureAnchor?,
+    ): TopRenderMode {
+        // 当前模板顶部孔/岛仍在 frame.png 里，无法真正隐藏；因此模板有顶部结构时必须由模板决定最终外观。
+        if (templateTopFeature != null) {
+            return TopRenderMode.SHOW_TEMPLATE_HOLE
+        }
+        return if (sourceTopFeature?.type == TopFeatureType.ISLAND) {
+            TopRenderMode.SHOW_SOURCE_ISLAND
+        } else {
+            TopRenderMode.SHOW_TEMPLATE_HOLE
+        }
+    }
+
+    private fun buildTopFeaturePrior(
+        feature: TopFeatureAnchor,
+        visibleBounds: RectF,
+    ): ScreenshotAnalyzer.TopFeaturePrior {
+        val width = visibleBounds.width().coerceAtLeast(1f)
+        val height = visibleBounds.height().coerceAtLeast(1f)
+        return ScreenshotAnalyzer.TopFeaturePrior(
+            type = feature.type,
+            centerXRatio = ((feature.centerX - visibleBounds.left) / width).coerceIn(0f, 1f),
+            centerYRatio = ((feature.centerY - visibleBounds.top) / height).coerceIn(0f, 1f),
+        )
+    }
+
+    private fun isReliableSourceTopFeature(
+        feature: TopFeatureAnchor,
+        sourceBitmap: Bitmap,
+    ): Boolean {
+        if (sourceBitmap.width <= 0 || sourceBitmap.height <= 0) return false
+        if (feature.confidence < SOURCE_TOP_FEATURE_MIN_CONFIDENCE) return false
+
+        val centerXRatio = feature.centerX / sourceBitmap.width.toFloat()
+        if (centerXRatio !in SOURCE_TOP_FEATURE_MIN_CENTER_X_RATIO..SOURCE_TOP_FEATURE_MAX_CENTER_X_RATIO) {
             return false
         }
-        val red = Color.red(color)
-        val green = Color.green(color)
-        val blue = Color.blue(color)
-        val luminance = red * 0.299f + green * 0.587f + blue * 0.114f
-        val maxChannel = maxOf(red, green, blue)
-        val minChannel = minOf(red, green, blue)
-        return luminance < TOP_FEATURE_DARK_LUMINANCE && (maxChannel - minChannel) < TOP_FEATURE_MAX_CHANNEL_SPREAD
-    }
 
-    private fun applyScreenMask(
-        contentCanvas: Canvas,
-        outputSize: OutputSize,
-        geometry: CompositionGeometry,
-        screenMaskBitmap: Bitmap?,
-        template: ShellTemplate,
-    ) {
-        val layerBounds = RectF(0f, 0f, outputSize.width.toFloat(), outputSize.height.toFloat())
-        val maskPaint = createDstInPaint()
-        val maskBitmap = screenMaskBitmap?.let {
-            if (template.alphaTighten) {
-                tightenMaskAlpha(
-                    source = it,
-                    lowThreshold = template.alphaLowThreshold,
-                    highThreshold = template.alphaHighThreshold,
-                )
-            } else {
-                it
-            }
+        val centerYRatio = feature.centerY / sourceBitmap.height.toFloat()
+        if (centerYRatio !in SOURCE_TOP_FEATURE_MIN_CENTER_Y_RATIO..SOURCE_TOP_FEATURE_MAX_CENTER_Y_RATIO) {
+            return false
         }
 
-        try {
-            if (maskBitmap != null) {
-                val paint = if (hasMeaningfulAlpha(maskBitmap)) createAlphaMaskBitmapPaint() else createLuminanceMaskBitmapPaint()
-                val bleed = (template.maskBleedPx * geometryScale(template, outputSize)).coerceAtLeast(0f)
-                contentCanvas.drawBitmap(maskBitmap, null, layerBounds.outset(bleed), paint)
-            } else {
-                contentCanvas.drawPath(geometry.screenPath, maskPaint)
-            }
-        } finally {
-            if (maskBitmap != null && maskBitmap !== screenMaskBitmap && !maskBitmap.isRecycled) {
-                maskBitmap.recycle()
-            }
+        val widthRatio = feature.width / sourceBitmap.width.toFloat()
+        val heightRatio = feature.height / sourceBitmap.height.toFloat()
+        if (widthRatio < SOURCE_TOP_FEATURE_MIN_WIDTH_RATIO || heightRatio < SOURCE_TOP_FEATURE_MIN_HEIGHT_RATIO) {
+            return false
+        }
+
+        return true
+    }
+
+    private fun isReliableSourceTopFeatureForVerticalAlignment(
+        feature: TopFeatureAnchor,
+        sourceBitmap: Bitmap,
+    ): Boolean {
+        if (sourceBitmap.width <= 0 || sourceBitmap.height <= 0) return false
+        if (feature.confidence < SOURCE_TOP_FEATURE_MIN_CONFIDENCE) return false
+
+        val centerXRatio = feature.centerX / sourceBitmap.width.toFloat()
+        if (centerXRatio !in SOURCE_TOP_FEATURE_VERTICAL_MIN_CENTER_X_RATIO..SOURCE_TOP_FEATURE_VERTICAL_MAX_CENTER_X_RATIO) {
+            return false
+        }
+
+        val centerYRatio = feature.centerY / sourceBitmap.height.toFloat()
+        if (centerYRatio !in SOURCE_TOP_FEATURE_MIN_CENTER_Y_RATIO..SOURCE_TOP_FEATURE_MAX_CENTER_Y_RATIO) {
+            return false
+        }
+
+        val widthRatio = feature.width / sourceBitmap.width.toFloat()
+        val heightRatio = feature.height / sourceBitmap.height.toFloat()
+        if (widthRatio < SOURCE_TOP_FEATURE_MIN_WIDTH_RATIO || heightRatio < SOURCE_TOP_FEATURE_MIN_HEIGHT_RATIO) {
+            return false
+        }
+
+        return true
+    }
+
+    private fun topFeatureScoreX(feature: TopFeatureAnchor, sourceBitmap: Bitmap): Float {
+        if (sourceBitmap.width <= 0) return 0f
+        val centerXRatio = feature.centerX / sourceBitmap.width.toFloat()
+        return (1f - kotlin.math.abs(centerXRatio - 0.5f) / 0.5f).coerceIn(0f, 1f)
+    }
+
+    private fun topFeatureScoreY(feature: TopFeatureAnchor, sourceBitmap: Bitmap): Float {
+        if (sourceBitmap.height <= 0) return 0f
+        val centerYRatio = feature.centerY / sourceBitmap.height.toFloat()
+        return when {
+            centerYRatio in SOURCE_TOP_FEATURE_MIN_CENTER_Y_RATIO..SOURCE_TOP_FEATURE_MAX_CENTER_Y_RATIO -> 1f
+            centerYRatio < SOURCE_TOP_FEATURE_MIN_CENTER_Y_RATIO ->
+                (centerYRatio / SOURCE_TOP_FEATURE_MIN_CENTER_Y_RATIO).coerceIn(0f, 1f)
+            else -> (1f - ((centerYRatio - SOURCE_TOP_FEATURE_MAX_CENTER_Y_RATIO) / SOURCE_TOP_FEATURE_MAX_CENTER_Y_RATIO))
+                .coerceIn(0f, 1f)
+        }
+    }
+
+    private fun shouldApplyTemplateCutout(
+        renderMode: TopRenderMode,
+        cutout: CutoutRegion,
+        geometry: ResolvedGeometry,
+    ): Boolean {
+        val rect = cutout.rect ?: return false
+        val outputRect = RectF(
+            rect.left * geometry.scaleX,
+            rect.top * geometry.scaleY,
+            rect.right * geometry.scaleX,
+            rect.bottom * geometry.scaleY,
+        )
+        val topBand = geometry.topSuppressionRect ?: geometry.safeTopBand
+        if (!RectF.intersects(outputRect, topBand)) return true
+        val feature = geometry.templateTopFeature ?: return renderMode != TopRenderMode.SHOW_SOURCE_ISLAND
+        val nearFeatureCenter =
+            kotlin.math.abs(outputRect.centerX() - feature.centerX) <= feature.width &&
+                kotlin.math.abs(outputRect.centerY() - feature.centerY) <= feature.height
+        val isSmallFeatureCutout =
+            outputRect.width() <= feature.width * 1.8f &&
+                outputRect.height() <= feature.height * 1.8f
+        return nearFeatureCenter && isSmallFeatureCutout
+    }
+
+    private fun drawDebugGuides(
+        canvas: Canvas,
+        geometry: ResolvedGeometry,
+        drawRect: RectF,
+        sourceFeature: TopFeatureAnchor?,
+        sourceStatusBarBand: ScreenRect?,
+        sourceBitmap: Bitmap,
+    ) {
+        val screenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 52, 199, 89); style = Paint.Style.STROKE; strokeWidth = 3f }
+        val drawRectPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 0, 122, 255); style = Paint.Style.STROKE; strokeWidth = 3f }
+        val suppressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 255, 59, 48); style = Paint.Style.STROKE; strokeWidth = 4f }
+        val sourcePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 255, 59, 48); style = Paint.Style.STROKE; strokeWidth = 3f }
+        val sourceBandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 255, 149, 0); style = Paint.Style.STROKE; strokeWidth = 2f }
+        val templatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 255, 204, 0); style = Paint.Style.STROKE; strokeWidth = 3f }
+        val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 90, 200, 250); style = Paint.Style.STROKE; strokeWidth = 3f }
+        val safePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 175, 82, 222); style = Paint.Style.STROKE; strokeWidth = 2f }
+        val bottomReservePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(180, 255, 45, 85); style = Paint.Style.STROKE; strokeWidth = 3f }
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 255, 149, 0); textSize = 22f }
+        
+        canvas.drawRect(geometry.screenRect, screenPaint)
+        canvas.drawRect(geometry.contentClipRect, clipPaint)
+        canvas.drawRect(geometry.safeTopBand, safePaint)
+        coverRectSolver.lastMetrics?.let { metrics ->
+            canvas.drawRect(
+                RectF(
+                    geometry.visibleBounds.left,
+                    geometry.visibleBounds.bottom - metrics.bottomReservePx,
+                    geometry.visibleBounds.right,
+                    geometry.visibleBounds.bottom,
+                ),
+                bottomReservePaint,
+            )
+        }
+        canvas.drawPath(geometry.screenPath, screenPaint)
+        canvas.drawRect(drawRect, drawRectPaint)
+        sourceFeature?.let { feature ->
+            val scaleX = drawRect.width() / sourceBitmap.width.toFloat()
+            val scaleY = drawRect.height() / sourceBitmap.height.toFloat()
+            val cx = drawRect.left + feature.centerX * scaleX
+            val cy = drawRect.top + feature.centerY * scaleY
+            val halfW = feature.width * scaleX / 2f
+            val halfH = feature.height * scaleY / 2f
+            canvas.drawOval(RectF(cx - halfW, cy - halfH, cx + halfW, cy + halfH), sourcePaint)
+        }
+        sourceStatusBarBand?.let { band ->
+            val scaleX = drawRect.width() / sourceBitmap.width.toFloat()
+            val scaleY = drawRect.height() / sourceBitmap.height.toFloat()
+            canvas.drawRect(
+                RectF(
+                    drawRect.left + band.left * scaleX,
+                    drawRect.top + band.top * scaleY,
+                    drawRect.left + band.right * scaleX,
+                    drawRect.top + band.bottom * scaleY,
+                ),
+                sourceBandPaint,
+            )
+        }
+        geometry.templateTopFeature?.let { feature ->
+            val halfW = feature.width / 2f
+            val halfH = feature.height / 2f
+            canvas.drawOval(
+                RectF(feature.centerX - halfW, feature.centerY - halfH, feature.centerX + halfW, feature.centerY + halfH),
+                templatePaint,
+            )
+        }
+        geometry.topSuppressionPath?.let { canvas.drawPath(it, suppressPaint) }
+        coverRectSolver.lastMetrics?.let { metrics ->
+            canvas.drawText(
+                "mode=${metrics.composeMode} dx=${metrics.appliedDx.toInt()} dy=${metrics.appliedDy.toInt()} bottom=${metrics.bottomLossRatio} fallback=${metrics.topAlignmentRejected}",
+                24f,
+                42f,
+                textPaint,
+            )
+        }
+    }
+
+    private fun drawTemplateTopFeatureUnderlay(canvas: Canvas, geometry: ResolvedGeometry) {
+        val feature = geometry.templateTopFeature ?: return
+        // 只给模板孔抗锯齿边缘补一个亚像素黑底，避免白边；不再做可见的大胶囊补丁。
+        val bleed = 0.75f * geometry.scaleToOutput
+        val rect = RectF(
+            feature.centerX - feature.width / 2f - bleed,
+            feature.centerY - feature.height / 2f - bleed,
+            feature.centerX + feature.width / 2f + bleed,
+            feature.centerY + feature.height / 2f + bleed,
+        )
+        val hardPaint = Paint(Paint.DITHER_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+        }
+        val softPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+        }
+        if (rect.width() / rect.height().coerceAtLeast(1f) < 1.5f) {
+            val radius = maxOf(rect.width(), rect.height()) / 2f
+            canvas.drawCircle(rect.centerX(), rect.centerY(), radius, hardPaint)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), radius, softPaint)
+        } else {
+            canvas.drawRoundRect(rect, rect.height() / 2f, rect.height() / 2f, hardPaint)
+            canvas.drawRoundRect(rect, rect.height() / 2f, rect.height() / 2f, softPaint)
         }
     }
 
     private fun applyCutoutMask(
         contentCanvas: Canvas,
-        cutout: ResolvedCutout,
+        cutout: CutoutRegion,
+        geometry: ResolvedGeometry,
+        template: ShellTemplate,
     ) {
         val paint = createDstOutPaint()
-        cutout.path?.let {
-            contentCanvas.drawPath(it, paint)
-            if (cutout.bleedPx > 0f) {
-                contentCanvas.drawPath(
-                    it,
-                    Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Color.WHITE
-                        style = Paint.Style.STROKE
-                        strokeWidth = cutout.bleedPx * 2f
-                        strokeJoin = Paint.Join.ROUND
-                        strokeCap = Paint.Cap.ROUND
-                        blendMode = BlendMode.DST_OUT
-                    },
-                )
-            }
+        val bleed = (template.cutoutBleedPx + cutout.featherPx).coerceAtLeast(0f) * geometry.scaleToOutput
+        cutout.rect?.let { rect ->
+            val outputRect = RectF(
+                rect.left * geometry.scaleX,
+                rect.top * geometry.scaleY,
+                rect.right * geometry.scaleX,
+                rect.bottom * geometry.scaleY,
+            ).apply { inset(-bleed, -bleed) }
+            contentCanvas.drawRoundRect(outputRect, outputRect.height() / 2f, outputRect.height() / 2f, paint)
         }
-        cutout.rect?.let { contentCanvas.drawRoundRect(it, it.height() / 2f, it.height() / 2f, paint) }
-    }
-
-    private fun tightenMaskAlpha(
-        source: Bitmap,
-        lowThreshold: Int,
-        highThreshold: Int,
-    ): Bitmap {
-        val low = lowThreshold.coerceIn(0, 255)
-        val high = highThreshold.coerceIn(low + 1, 255)
-        val width = source.width
-        val height = source.height
-        val pixels = IntArray(width * height)
-        source.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        for (index in pixels.indices) {
-            val color = pixels[index]
-            val alpha = if (source.hasAlpha()) {
-                Color.alpha(color)
-            } else {
-                ((Color.red(color) * 0.299f) + (Color.green(color) * 0.587f) + (Color.blue(color) * 0.114f)).toInt()
-            }
-            val tightened = when {
-                alpha <= low -> 0
-                alpha >= high -> 255
-                else -> (((alpha - low) / (high - low).toFloat()) * 255f).toInt().coerceIn(0, 255)
-            }
-            pixels[index] = Color.argb(tightened, 255, 255, 255)
-        }
-
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
-            setPixels(pixels, 0, width, 0, 0, width, height)
-        }
-    }
-
-    private fun parseTemplatePath(
-        rawPath: String,
-        template: ShellTemplate,
-        outputSize: OutputSize,
-    ): Path? {
-        val parsedPath = runCatching { PathParser.createPathFromPathData(rawPath) }
-            .onFailure { throwable ->
-                logger.e(TAG, "Failed to parse template path for template ${template.id}", throwable)
-            }
-            .getOrNull()
-            ?: return null
-
-        val transform = Matrix().apply {
-            setScale(
-                outputSize.width / logicalWidth(template, outputSize).toFloat(),
-                outputSize.height / logicalHeight(template, outputSize).toFloat(),
-            )
-        }
-        return Path(parsedPath).apply { transform(transform) }
-    }
-
-    private fun drawDebugGuides(
-        canvas: Canvas,
-        geometry: CompositionGeometry,
-        contentDrawRect: RectF,
-        sourceTopFeature: TopFeatureAnchor?,
-        templateTopFeature: TopFeatureAnchor?,
-        effectiveTopFeature: TopFeatureAnchor?,
-        sourceBitmap: Bitmap,
-    ) {
-        val screenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(220, 0, 122, 255)
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-        }
-        val contentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(220, 52, 199, 89)
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-        }
-        val cutoutPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(230, 255, 59, 48)
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-        }
-        val sourceFeaturePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(230, 175, 82, 222)
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-        }
-        val templateFeaturePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(230, 255, 204, 0)
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-        }
-        val effectiveFeaturePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(240, 90, 200, 250)
-            style = Paint.Style.STROKE
-            strokeWidth = 2f
-        }
-
-        canvas.drawRect(geometry.screenRect, screenPaint)
-        canvas.drawPath(geometry.screenPath, screenPaint)
-        canvas.drawRect(contentDrawRect, contentPaint)
-        sourceTopFeature
-            ?.mapFromSourceToOutput(contentDrawRect, sourceBitmap)
-            ?.let { drawTopFeatureGuide(canvas, it, sourceFeaturePaint) }
-        templateTopFeature?.let { drawTopFeatureGuide(canvas, it, templateFeaturePaint) }
-        effectiveTopFeature
-            ?.let { feature ->
-                if (feature === sourceTopFeature) {
-                    feature.mapFromSourceToOutput(contentDrawRect, sourceBitmap)
-                } else {
-                    feature
-                }
-            }
-            ?.let { drawTopFeatureGuide(canvas, it, effectiveFeaturePaint) }
-        geometry.cutouts.forEach { cutout ->
-            cutout.path?.let { canvas.drawPath(it, cutoutPaint) }
-            cutout.rect?.let { canvas.drawRect(it, cutoutPaint) }
-        }
-    }
-
-    private fun drawTopFeatureGuide(
-        canvas: Canvas,
-        feature: TopFeatureAnchor,
-        paint: Paint,
-    ) {
-        val rect = feature.toRectF()
-        when (feature.type) {
-            TopFeatureType.ISLAND -> canvas.drawRoundRect(rect, rect.height() / 2f, rect.height() / 2f, paint)
-            TopFeatureType.PUNCH_HOLE -> canvas.drawOval(rect, paint)
-            TopFeatureType.NONE -> canvas.drawRect(rect, paint)
-        }
-        canvas.drawCircle(feature.centerX, feature.centerY, 5f, paint)
-    }
-
-    private fun TopFeatureAnchor.scaledToOutput(
-        template: ShellTemplate,
-        outputSize: OutputSize,
-    ): TopFeatureAnchor {
-        val scaleX = outputSize.width / logicalWidth(template, outputSize).toFloat()
-        val scaleY = outputSize.height / logicalHeight(template, outputSize).toFloat()
-        return TopFeatureAnchor(
-            type = type,
-            centerX = centerX * scaleX,
-            centerY = centerY * scaleY,
-            width = width * scaleX,
-            height = height * scaleY,
-            confidence = confidence,
-        )
-    }
-
-    private fun ResolvedCutout.isTopFeatureCutout(screenRect: RectF): Boolean {
-        val bounds = RectF()
-        when {
-            rect != null -> bounds.set(rect)
-            path != null -> path.computeBounds(bounds, true)
-            else -> return false
-        }
-        val topBandBottom = screenRect.top + screenRect.height() * TOP_FEATURE_CUTOUT_BAND_RATIO
-        return bounds.centerY() <= topBandBottom && bounds.centerX() in screenRect.left..screenRect.right
-    }
-
-    private fun drawScreenshotCover(
-        canvas: Canvas,
-        sourceBitmap: Bitmap,
-        template: ShellTemplate,
-        outputSize: OutputSize,
-        screenMaskBitmap: Bitmap?,
-    ) {
-        val effectiveScreenRect = resolveEffectiveScreenRect(
-            template = template,
-            outputSize = outputSize,
-            screenMaskBitmap = screenMaskBitmap,
-        )
-        val screenRect = effectiveScreenRect.toRectF()
-        val coverRect = CompositionLayoutCalculator.calculateCoverRect(
-            sourceWidth = sourceBitmap.width,
-            sourceHeight = sourceBitmap.height,
-            targetRect = effectiveScreenRect,
-            scaleMode = template.scaleMode,
-        ).expanded(resolveMaskBleedPx(template, outputSize))
-
-        val bitmapPaint = createBitmapPaint()
-        val pathMask = buildScreenMaskPath(
-            template = template,
-            outputSize = outputSize,
-        ) ?: buildRoundedRectPath(
-            screenRect = screenRect,
-            cornerRadius = template.cornerRadius,
-        )
-
-        when {
-            // Bitmap mask is the highest-priority option because it can capture arbitrary
-            // irregular screen silhouettes while staying aligned to the template coordinate space.
-            screenMaskBitmap != null -> applyMaskBitmap(
-                canvas = canvas,
-                sourceBitmap = sourceBitmap,
-                coverRect = coverRect,
-                maskBitmap = screenMaskBitmap,
-                bitmapPaint = bitmapPaint,
-                outputSize = outputSize,
-            )
-
-            // Path mask is the next best option and still lets templates express precise cutouts
-            // without falling back to runtime image analysis.
-            else -> applyPathMask(
-                canvas = canvas,
-                sourceBitmap = sourceBitmap,
-                coverRect = coverRect,
-                maskPath = pathMask,
-                bitmapPaint = bitmapPaint,
-                outputSize = outputSize,
-            )
-        }
-    }
-
-    private fun applyMaskBitmap(
-        canvas: Canvas,
-        sourceBitmap: Bitmap,
-        coverRect: RectF,
-        maskBitmap: Bitmap,
-        bitmapPaint: Paint,
-        outputSize: OutputSize,
-    ) {
-        val layerBounds = RectF(0f, 0f, outputSize.width.toFloat(), outputSize.height.toFloat())
-        val saveCount = canvas.saveLayer(layerBounds, null)
-        val maskPaint = if (hasMeaningfulAlpha(maskBitmap)) {
-            createAlphaMaskBitmapPaint()
-        } else {
-            createLuminanceMaskBitmapPaint()
-        }
-
-        // Draw the screenshot cover first, then keep only the mask-visible region.
-        // Prefer the real alpha channel when available, then fall back to luminance-based masks
-        // for older hard-edged template assets.
-        canvas.drawBitmap(sourceBitmap, null, coverRect, bitmapPaint)
-        canvas.drawBitmap(
-            maskBitmap,
-            null,
-            layerBounds,
-            maskPaint,
-        )
-
-        canvas.restoreToCount(saveCount)
-    }
-
-    private fun applyPathMask(
-        canvas: Canvas,
-        sourceBitmap: Bitmap,
-        coverRect: RectF,
-        maskPath: Path,
-        bitmapPaint: Paint,
-        outputSize: OutputSize,
-    ) {
-        val layerBounds = RectF(0f, 0f, outputSize.width.toFloat(), outputSize.height.toFloat())
-        val saveCount = canvas.saveLayer(layerBounds, null)
-        val maskBitmap = renderPathMaskBitmap(
-            outputSize = outputSize,
-            maskPath = maskPath,
-        )
-
-        try {
-            canvas.drawBitmap(sourceBitmap, null, coverRect, bitmapPaint)
-            canvas.drawBitmap(
-                maskBitmap,
-                null,
-                layerBounds,
-                createAlphaMaskBitmapPaint(),
-            )
-            canvas.restoreToCount(saveCount)
-        } finally {
-            if (!maskBitmap.isRecycled) {
-                maskBitmap.recycle()
+        cutout.pathData?.takeIf { it.isNotBlank() }?.let { pathData ->
+            runCatching {
+                val path = PathParser.createPathFromPathData(pathData)
+                path.transform(Matrix().apply { setScale(geometry.scaleX, geometry.scaleY) })
+                contentCanvas.drawPath(path, paint)
             }
         }
     }
 
-    private fun buildRoundedRectPath(
-        screenRect: RectF,
-        cornerRadius: Float,
-    ): Path = Path().apply {
-        addRoundRect(
-            screenRect,
-            cornerRadius,
-            cornerRadius,
-            Path.Direction.CW,
-        )
-    }
-
-    private fun buildScreenMaskPath(
-        template: ShellTemplate,
-        outputSize: OutputSize,
-    ): Path? {
-        val rawPath = template.screenMaskPath?.takeIf { it.isNotBlank() } ?: return null
-        val parsedPath = runCatching { PathParser.createPathFromPathData(rawPath) }
-            .onFailure { throwable ->
-                logger.e(TAG, "Failed to parse screen mask path for template ${template.id}", throwable)
-            }
-            .getOrNull()
-            ?: return null
-
-        val designWidth = template.outputWidth.takeIf { it > 0 } ?: outputSize.width
-        val designHeight = template.outputHeight.takeIf { it > 0 } ?: outputSize.height
-
-        if (designWidth == outputSize.width && designHeight == outputSize.height) {
-            return parsedPath
-        }
-
-        val scaledPath = Path(parsedPath)
-        val transform = Matrix().apply {
-            setScale(
-                outputSize.width / designWidth.toFloat(),
-                outputSize.height / designHeight.toFloat(),
-            )
-        }
-        scaledPath.transform(transform)
-        return scaledPath
-    }
-
-    private fun drawFrameOverlay(
-        canvas: Canvas,
-        frameBitmap: Bitmap,
-        outputSize: OutputSize,
-        templateTopFeature: TopFeatureAnchor? = null,
-        sourceTopFeature: TopFeatureAnchor? = null,
-        contentDrawRect: RectF? = null,
-        sourceBitmap: Bitmap? = null,
-    ) {
-        val sourceHasTopFeature = sourceTopFeature?.type == TopFeatureType.ISLAND ||
-            sourceTopFeature?.type == TopFeatureType.PUNCH_HOLE
-        if (sourceHasTopFeature && templateTopFeature != null && contentDrawRect != null && sourceBitmap != null) {
-            val frameLayer = Bitmap.createBitmap(
-                outputSize.width,
-                outputSize.height,
-                Bitmap.Config.ARGB_8888,
-            )
-            val frameCanvas = Canvas(frameLayer)
-            try {
-                frameCanvas.drawBitmap(
-                    frameBitmap,
-                    null,
-                    RectF(0f, 0f, outputSize.width.toFloat(), outputSize.height.toFloat()),
-                    createBitmapPaint(),
-                )
-                val sourceFeatureInOutput = sourceTopFeature.mapFromSourceToOutput(
-                    contentDrawRect = contentDrawRect,
-                    sourceBitmap = sourceBitmap,
-                )
-                clearTemplateTopFeatureOverlay(
-                    canvas = frameCanvas,
-                    templateTopFeature = templateTopFeature,
-                    sourceTopFeatureInOutput = sourceFeatureInOutput,
-                )
-                canvas.drawBitmap(frameLayer, 0f, 0f, null)
-            } finally {
-                if (!frameLayer.isRecycled) {
-                    frameLayer.recycle()
-                }
-            }
-            return
-        }
-
-        // Frame is always drawn last so bezel, cutout, and hardware details sit above the screenshot layer.
-        canvas.drawBitmap(
-            frameBitmap,
-            null,
-            RectF(0f, 0f, outputSize.width.toFloat(), outputSize.height.toFloat()),
-            createBitmapPaint(),
-        )
-    }
-
-    private fun clearTemplateTopFeatureOverlay(
-        canvas: Canvas,
-        templateTopFeature: TopFeatureAnchor,
-        sourceTopFeatureInOutput: TopFeatureAnchor,
-    ) {
-        val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
-            blendMode = BlendMode.CLEAR
-            style = Paint.Style.FILL
-        }
-        val clearRect = templateTopFeature
-            .unionWith(sourceTopFeatureInOutput)
-            .outset(TOP_FEATURE_FRAME_CLEAR_BLEED_PX)
-            .alignToPixel()
-        val radius = when (sourceTopFeatureInOutput.type) {
-            TopFeatureType.ISLAND -> clearRect.height() / 2f
-            TopFeatureType.PUNCH_HOLE -> maxOf(clearRect.width(), clearRect.height()) / 2f
-            TopFeatureType.NONE -> clearRect.height() / 2f
-        }
-        canvas.drawRoundRect(clearRect, radius, radius, clearPaint)
-    }
-
-    private fun resolveOutputSize(
-        template: ShellTemplate,
-        frameBitmap: Bitmap,
-    ): OutputSize {
-        val width = template.outputWidth.takeIf { it > 0 } ?: frameBitmap.width
-        val height = template.outputHeight.takeIf { it > 0 } ?: frameBitmap.height
-        return OutputSize(width = width, height = height)
-    }
-
-    private fun logicalWidth(template: ShellTemplate, outputSize: OutputSize): Int {
-        return template.logicalWidth.takeIf { it > 0 }
-            ?: template.outputWidth.takeIf { it > 0 }
-            ?: outputSize.width
-    }
-
-    private fun logicalHeight(template: ShellTemplate, outputSize: OutputSize): Int {
-        return template.logicalHeight.takeIf { it > 0 }
-            ?: template.outputHeight.takeIf { it > 0 }
-            ?: outputSize.height
-    }
-
-    private fun geometryScale(template: ShellTemplate, outputSize: OutputSize): Float {
-        val scaleX = outputSize.width / logicalWidth(template, outputSize).toFloat()
-        val scaleY = outputSize.height / logicalHeight(template, outputSize).toFloat()
-        return (scaleX + scaleY) / 2f
-    }
-
-    private fun resolveEffectiveScreenRect(
-        template: ShellTemplate,
-        outputSize: OutputSize,
-        screenMaskBitmap: Bitmap?,
-    ): ScreenRect {
-        val explicitRect = template.screenRect
-            .scaledTo(
-                outputWidth = outputSize.width,
-                outputHeight = outputSize.height,
-                template = template,
-            )
-            .inset(template.screenInsetPx)
-            .coerceWithin(
-                outputWidth = outputSize.width,
-                outputHeight = outputSize.height,
-            )
-        if (explicitRect.isValid()) {
-            return explicitRect
-        }
-
-        val maskBounds = screenMaskBitmap?.let {
-            detectBitmapMaskBounds(
-                maskBitmap = it,
-                outputSize = outputSize,
-            )?.inset(template.screenInsetPx)?.coerceWithin(
-                outputWidth = outputSize.width,
-                outputHeight = outputSize.height,
-            )
-        }
-        return maskBounds ?: ScreenRect(
-            left = 0,
-            top = 0,
-            right = outputSize.width,
-            bottom = outputSize.height,
-        )
-    }
-
-    private fun detectBitmapMaskBounds(
-        maskBitmap: Bitmap,
-        outputSize: OutputSize,
-    ): ScreenRect? {
-        val width = maskBitmap.width
-        val height = maskBitmap.height
-        if (width <= 0 || height <= 0) {
-            return null
-        }
-
-        val pixels = IntArray(width * height)
-        maskBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        var minX = width
-        var minY = height
-        var maxX = -1
-        var maxY = -1
-
-        for (index in pixels.indices) {
-            val color = pixels[index]
-            val visible = color.alpha > 32 || (
-                Color.red(color) >= 128 &&
-                    Color.green(color) >= 128 &&
-                    Color.blue(color) >= 128
-                )
-            if (!visible) {
-                continue
-            }
-
-            val x = index % width
-            val y = index / width
-            if (x < minX) minX = x
-            if (y < minY) minY = y
-            if (x > maxX) maxX = x
-            if (y > maxY) maxY = y
-        }
-
-        if (maxX < minX || maxY < minY) {
-            return null
-        }
-
-        val scaleX = outputSize.width / width.toFloat()
-        val scaleY = outputSize.height / height.toFloat()
-
-        return ScreenRect(
-            left = (minX * scaleX).toInt(),
-            top = (minY * scaleY).toInt(),
-            right = kotlin.math.ceil((maxX + 1) * scaleX).toInt(),
-            bottom = kotlin.math.ceil((maxY + 1) * scaleY).toInt(),
-        )
-    }
-
-    private fun createBitmapPaint(): Paint {
-        return Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG).apply {
-            isFilterBitmap = true
-            isDither = true
-        }
-    }
-
-    private fun createAlphaMaskBitmapPaint(): Paint {
-        return Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG).apply {
-            blendMode = BlendMode.DST_IN
-            isFilterBitmap = true
-            isDither = true
-        }
-    }
-
-    private fun createLuminanceMaskBitmapPaint(): Paint {
-        return Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG).apply {
-            blendMode = BlendMode.DST_IN
-            colorFilter = ColorMatrixColorFilter(LUMINANCE_TO_ALPHA_MATRIX)
-            isFilterBitmap = true
-            isDither = true
-        }
-    }
-
-    private fun createSolidMaskPaint(): Paint {
-        return Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-            isDither = true
-        }
-    }
-
-    private fun createDstInPaint(): Paint {
-        return Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-            blendMode = BlendMode.DST_IN
-            isDither = true
-        }
-    }
-
-    private fun createDstOutPaint(): Paint {
-        return Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-            blendMode = BlendMode.DST_OUT
-            isDither = true
-        }
-    }
-
-    private fun renderPathMaskBitmap(
-        outputSize: OutputSize,
-        maskPath: Path,
-    ): Bitmap {
-        val maskBitmap = Bitmap.createBitmap(
-            outputSize.width,
-            outputSize.height,
-            Bitmap.Config.ARGB_8888,
-        )
-        val maskCanvas = Canvas(maskBitmap)
-        maskCanvas.drawColor(Color.TRANSPARENT)
-        maskCanvas.drawPath(maskPath, createSolidMaskPaint())
-        return maskBitmap
-    }
+    private fun parseColor(raw: String): Int = runCatching { Color.parseColor(raw) }.getOrDefault(Color.TRANSPARENT)
+    private fun createBitmapPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG).apply { isFilterBitmap = true; isDither = true }
+    private fun createDstInPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL; blendMode = BlendMode.DST_IN }
+    private fun createDstOutPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL; blendMode = BlendMode.DST_OUT }
+    private fun createAlphaMaskBitmapPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { blendMode = BlendMode.DST_IN }
+    private fun createLuminanceMaskBitmapPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { blendMode = BlendMode.DST_IN; colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0.299f, 0.587f, 0.114f, 0f, 0f))) }
 
     private fun hasMeaningfulAlpha(bitmap: Bitmap): Boolean {
-        if (!bitmap.hasAlpha()) {
-            return false
-        }
-
-        val width = bitmap.width
-        val height = bitmap.height
-        if (width <= 0 || height <= 0) {
-            return false
-        }
-
-        val sampleStepX = maxOf(1, width / MASK_ALPHA_SAMPLE_GRID)
-        val sampleStepY = maxOf(1, height / MASK_ALPHA_SAMPLE_GRID)
-
-        var translucentCount = 0
-        var sampleCount = 0
-        var y = 0
-        while (y < height) {
-            var x = 0
-            while (x < width) {
-                val alpha = bitmap.getPixel(x, y).alpha
-                if (alpha in 8..247) {
-                    translucentCount += 1
-                    if (translucentCount >= MIN_MEANINGFUL_ALPHA_SAMPLES) {
-                        return true
-                    }
-                }
-                sampleCount += 1
-                x += sampleStepX
+        if (!bitmap.hasAlpha()) return false
+        val stepX = (bitmap.width / 32).coerceAtLeast(1)
+        val stepY = (bitmap.height / 32).coerceAtLeast(1)
+        var transparentCount = 0
+        var opaqueCount = 0
+        for (y in 0 until bitmap.height step stepY) {
+            for (x in 0 until bitmap.width step stepX) {
+                val alpha = Color.alpha(bitmap.getPixel(x, y))
+                if (alpha <= 16) transparentCount += 1
+                if (alpha >= 239) opaqueCount += 1
+                if (transparentCount > 2 && opaqueCount > 2) return true
             }
-            y += sampleStepY
         }
-
-        return sampleCount > 0 && translucentCount > 0
+        return false
     }
 
-    private fun resolveMaskBleedPx(
-        template: ShellTemplate,
-        outputSize: OutputSize,
-    ): Float {
-        val baseBleed = (minOf(outputSize.width, outputSize.height) * DEFAULT_MASK_BLEED_RATIO)
-            .coerceIn(MIN_MASK_BLEED_PX, MAX_MASK_BLEED_PX)
-        return (baseBleed + template.maskBleedPx).coerceAtLeast(0f)
-    }
-
-    private fun parseColor(raw: String): Int {
-        return runCatching { Color.parseColor(raw) }.getOrDefault(Color.TRANSPARENT)
-    }
-
-    private data class OutputSize(
-        val width: Int,
-        val height: Int,
-    )
-
-    private data class CompositionGeometry(
-        val screenRect: RectF,
-        val screenPath: Path,
-        val cutouts: List<ResolvedCutout>,
-        val scale: Float,
-    )
-
-    private data class ResolvedCutout(
-        val path: Path?,
-        val rect: RectF?,
-        val bleedPx: Float,
-    )
-
-    private data class TopFeatureComponent(
-        val left: Int,
-        val top: Int,
-        val right: Int,
-        val bottom: Int,
-        val pixelCount: Int,
-        val sourceWidth: Int,
-        val sourceScanHeight: Int,
-    ) {
-        private val width: Float get() = (right - left).toFloat()
-        private val height: Float get() = (bottom - top).toFloat()
-        private val centerX: Float get() = (left + right) / 2f
-        private val centerY: Float get() = (top + bottom) / 2f
-        private val aspect: Float get() = width / height.coerceAtLeast(1f)
-        private val fillRatio: Float get() = pixelCount / (width * height).coerceAtLeast(1f)
-        private val centerScore: Float
-            get() = (1f - (kotlin.math.abs(centerX - sourceWidth / 2f) / (sourceWidth / 2f))).coerceIn(0f, 1f)
-        private val topScore: Float
-            get() = (1f - (centerY / sourceScanHeight.toFloat())).coerceIn(0f, 1f)
-
-        fun toIslandAnchor(): TopFeatureAnchor? {
-            val minWidth = sourceWidth * 0.08f
-            val maxWidth = sourceWidth * 0.48f
-            val maxHeight = sourceScanHeight * 0.70f
-            if (width !in minWidth..maxWidth) return null
-            if (height !in TOP_FEATURE_MIN_SIZE_PX.toFloat()..maxHeight) return null
-            if (aspect < 2.2f || aspect > 9f) return null
-            if (fillRatio < 0.35f) return null
-            if (centerScore < 0.45f) return null
-
-            val confidence = (0.45f + centerScore * 0.35f + topScore * 0.10f + fillRatio.coerceAtMost(1f) * 0.10f)
-                .coerceIn(0f, 1f)
-            return TopFeatureAnchor(
-                type = TopFeatureType.ISLAND,
-                centerX = centerX,
-                centerY = centerY,
-                width = width,
-                height = height,
-                confidence = confidence,
-            )
-        }
-
-        fun toPunchHoleAnchor(): TopFeatureAnchor? {
-            val minSize = TOP_FEATURE_MIN_SIZE_PX.toFloat()
-            val maxSize = minOf(sourceWidth * 0.12f, sourceScanHeight * 0.75f)
-            if (width !in minSize..maxSize || height !in minSize..maxSize) return null
-            if (aspect !in 0.55f..1.85f) return null
-            if (fillRatio < 0.30f) return null
-            if (centerScore < 0.40f) return null
-
-            val confidence = (0.40f + centerScore * 0.35f + topScore * 0.10f + fillRatio.coerceAtMost(1f) * 0.15f)
-                .coerceIn(0f, 1f)
-            return TopFeatureAnchor(
-                type = TopFeatureType.PUNCH_HOLE,
-                centerX = centerX,
-                centerY = centerY,
-                width = maxOf(width, height),
-                height = maxOf(width, height),
-                confidence = confidence,
-            )
-        }
+    private fun RectF.toShortLog(): String {
+        return "${left.toInt()},${top.toInt()},${right.toInt()},${bottom.toInt()}"
     }
 
     private companion object {
         const val TAG = "ShellComposer"
-        const val MASK_ALPHA_SAMPLE_GRID = 24
-        const val MIN_MEANINGFUL_ALPHA_SAMPLES = 3
-        const val TOP_FEATURE_SCAN_HEIGHT_RATIO = 0.16f
-        const val TOP_FEATURE_CUTOUT_BAND_RATIO = 0.18f
-        const val TOP_FEATURE_MIN_SIZE_PX = 8
-        const val TOP_FEATURE_DARK_LUMINANCE = 72f
-        const val TOP_FEATURE_MAX_CHANNEL_SPREAD = 42
-        const val TOP_FEATURE_FRAME_CLEAR_BLEED_PX = 3f
-        const val DEFAULT_MASK_BLEED_RATIO = 0.0012f
-        const val MIN_MASK_BLEED_PX = 1f
-        const val MAX_MASK_BLEED_PX = 2f
-        val LUMINANCE_TO_ALPHA_MATRIX = ColorMatrix(
-            floatArrayOf(
-                0f, 0f, 0f, 0f, 0f,
-                0f, 0f, 0f, 0f, 0f,
-                0f, 0f, 0f, 0f, 0f,
-                0.299f, 0.587f, 0.114f, 0f, 0f,
-            ),
-        )
-    }
-}
-
-object CompositionLayoutCalculator {
-    fun calculateCoverRect(
-        sourceWidth: Int,
-        sourceHeight: Int,
-        targetRect: ScreenRect,
-        scaleMode: ScaleMode,
-    ): RectF {
-        val targetWidth = targetRect.width.toFloat()
-        val targetHeight = targetRect.height.toFloat()
-
-        // CENTER_CROP is the template "cover" mode: keep aspect ratio, fill the target, crop overflow.
-        val scale = when (scaleMode) {
-            ScaleMode.FIT_CENTER -> minOf(targetWidth / sourceWidth, targetHeight / sourceHeight)
-            ScaleMode.CENTER_CROP -> maxOf(targetWidth / sourceWidth, targetHeight / sourceHeight)
-        }
-
-        val scaledWidth = sourceWidth * scale
-        val scaledHeight = sourceHeight * scale
-        val left = targetRect.left + ((targetWidth - scaledWidth) / 2f)
-        val top = targetRect.top + ((targetHeight - scaledHeight) / 2f)
-
-        return RectF(
-            left,
-            top,
-            left + scaledWidth,
-            top + scaledHeight,
-        )
+        const val SOURCE_TOP_FEATURE_MIN_CONFIDENCE = 0.62f
+        const val SOURCE_TOP_FEATURE_MIN_CENTER_X_RATIO = 0.46f
+        const val SOURCE_TOP_FEATURE_MAX_CENTER_X_RATIO = 0.54f
+        const val SOURCE_TOP_FEATURE_VERTICAL_MIN_CENTER_X_RATIO = 0.36f
+        const val SOURCE_TOP_FEATURE_VERTICAL_MAX_CENTER_X_RATIO = 0.64f
+        const val SOURCE_TOP_FEATURE_MIN_CENTER_Y_RATIO = 0.018f
+        const val SOURCE_TOP_FEATURE_MAX_CENTER_Y_RATIO = 0.060f
+        const val SOURCE_TOP_FEATURE_MIN_WIDTH_RATIO = 0.015f
+        const val SOURCE_TOP_FEATURE_MIN_HEIGHT_RATIO = 0.006f
+        val DEFAULT_COMPOSE_MODE = ComposeMode.SAFE
     }
 
-    fun calculateDestinationRect(
-        sourceWidth: Int,
-        sourceHeight: Int,
-        targetRect: ScreenRect,
-        scaleMode: ScaleMode,
-    ): RectF {
-        return calculateCoverRect(
-            sourceWidth = sourceWidth,
-            sourceHeight = sourceHeight,
-            targetRect = targetRect,
-            scaleMode = scaleMode,
-        )
+    private enum class TopRenderMode {
+        SHOW_SOURCE_ISLAND,
+        SHOW_TEMPLATE_HOLE,
     }
-}
-
-private fun ScreenRect.toRectF(): RectF {
-    return RectF(
-        left.toFloat(),
-        top.toFloat(),
-        right.toFloat(),
-        bottom.toFloat(),
-    )
-}
-
-private fun ScreenRect.scaledTo(
-    outputWidth: Int,
-    outputHeight: Int,
-    template: ShellTemplate,
-): ScreenRect {
-    val designWidth = template.outputWidth.takeIf { it > 0 } ?: outputWidth
-    val designHeight = template.outputHeight.takeIf { it > 0 } ?: outputHeight
-    if (designWidth == outputWidth && designHeight == outputHeight) {
-        return this
-    }
-
-    val scaleX = outputWidth / designWidth.toFloat()
-    val scaleY = outputHeight / designHeight.toFloat()
-    return ScreenRect(
-        left = kotlin.math.round(left * scaleX).toInt(),
-        top = kotlin.math.round(top * scaleY).toInt(),
-        right = kotlin.math.round(right * scaleX).toInt(),
-        bottom = kotlin.math.round(bottom * scaleY).toInt(),
-    )
-}
-
-private fun ScreenRect.scaledToOutput(
-    outputWidth: Int,
-    outputHeight: Int,
-    template: ShellTemplate,
-): ScreenRect {
-    val designWidth = template.logicalWidthFor(OutputSizeCompat(outputWidth, outputHeight))
-    val designHeight = template.logicalHeightFor(OutputSizeCompat(outputWidth, outputHeight))
-    if (designWidth == outputWidth && designHeight == outputHeight) {
-        return this
-    }
-
-    val scaleX = outputWidth / designWidth.toFloat()
-    val scaleY = outputHeight / designHeight.toFloat()
-    return ScreenRect(
-        left = kotlin.math.round(left * scaleX).toInt(),
-        top = kotlin.math.round(top * scaleY).toInt(),
-        right = kotlin.math.round(right * scaleX).toInt(),
-        bottom = kotlin.math.round(bottom * scaleY).toInt(),
-    )
-}
-
-private fun ScreenRect.inset(delta: Float): ScreenRect {
-    if (delta == 0f) {
-        return this
-    }
-
-    val rounded = kotlin.math.round(delta).toInt()
-    return ScreenRect(
-        left = left + rounded,
-        top = top + rounded,
-        right = right - rounded,
-        bottom = bottom - rounded,
-    )
-}
-
-private fun ScreenRect.coerceWithin(outputWidth: Int, outputHeight: Int): ScreenRect {
-    val safeLeft = left.coerceIn(0, outputWidth)
-    val safeTop = top.coerceIn(0, outputHeight)
-    val safeRight = right.coerceIn(safeLeft, outputWidth)
-    val safeBottom = bottom.coerceIn(safeTop, outputHeight)
-    return ScreenRect(
-        left = safeLeft,
-        top = safeTop,
-        right = safeRight,
-        bottom = safeBottom,
-    )
-}
-
-private fun ScreenRect.isValid(): Boolean {
-    return width > 0 && height > 0
-}
-
-private fun RectF.expanded(delta: Float): RectF {
-    if (delta <= 0f) {
-        return this
-    }
-    return RectF(
-        left - delta,
-        top - delta,
-        right + delta,
-        bottom + delta,
-    )
-}
-
-private fun RectF.outset(delta: Float): RectF {
-    if (delta == 0f) {
-        return RectF(this)
-    }
-    return RectF(left - delta, top - delta, right + delta, bottom + delta)
-}
-
-private fun RectF.alignToPixel(): RectF {
-    return RectF(
-        kotlin.math.floor(left).toFloat(),
-        kotlin.math.floor(top).toFloat(),
-        kotlin.math.ceil(right).toFloat(),
-        kotlin.math.ceil(bottom).toFloat(),
-    )
-}
-
-private fun RectF.clampToCover(target: RectF): RectF {
-    val result = RectF(this)
-    var dx = 0f
-    var dy = 0f
-
-    if (result.left > target.left) {
-        dx = target.left - result.left
-    } else if (result.right < target.right) {
-        dx = target.right - result.right
-    }
-
-    if (result.top > target.top) {
-        dy = target.top - result.top
-    } else if (result.bottom < target.bottom) {
-        dy = target.bottom - result.bottom
-    }
-
-    result.offset(dx, dy)
-    return result
-}
-
-private fun TopFeatureAnchor.mapFromSourceToOutput(
-    contentDrawRect: RectF,
-    sourceBitmap: Bitmap,
-): TopFeatureAnchor {
-    val scaleX = contentDrawRect.width() / sourceBitmap.width.toFloat()
-    val scaleY = contentDrawRect.height() / sourceBitmap.height.toFloat()
-    return TopFeatureAnchor(
-        type = type,
-        centerX = contentDrawRect.left + centerX * scaleX,
-        centerY = contentDrawRect.top + centerY * scaleY,
-        width = width * scaleX,
-        height = height * scaleY,
-        confidence = confidence,
-    )
-}
-
-private fun TopFeatureAnchor.toRectF(): RectF {
-    return RectF(
-        centerX - width / 2f,
-        centerY - height / 2f,
-        centerX + width / 2f,
-        centerY + height / 2f,
-    )
-}
-
-private fun TopFeatureAnchor.unionWith(other: TopFeatureAnchor): RectF {
-    val first = toRectF()
-    val second = other.toRectF()
-    first.union(second)
-    return first
-}
-
-private data class OutputSizeCompat(
-    val width: Int,
-    val height: Int,
-)
-
-private fun ShellTemplate.logicalWidthFor(outputSize: OutputSizeCompat): Int {
-    return logicalWidth.takeIf { it > 0 }
-        ?: outputWidth.takeIf { it > 0 }
-        ?: outputSize.width
-}
-
-private fun ShellTemplate.logicalHeightFor(outputSize: OutputSizeCompat): Int {
-    return logicalHeight.takeIf { it > 0 }
-        ?: outputHeight.takeIf { it > 0 }
-        ?: outputSize.height
 }

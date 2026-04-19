@@ -5,6 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
+import com.example.shellshot.processor.pipeline.FittedFeature
+import com.example.shellshot.processor.pipeline.ImportedTemplate
+import com.example.shellshot.processor.pipeline.TemplateImportPipeline
 import com.example.shellshot.utils.ShellLogger
 import java.io.File
 import java.io.FileInputStream
@@ -29,6 +32,8 @@ class TemplateRepository(
         ignoreUnknownKeys = true
         prettyPrint = true
     }
+    private val templateImportPipeline = TemplateImportPipeline()
+    private val deviceCaptureProfileProvider = DeviceCaptureProfileProvider(context)
     private var cachedTemplates: List<ShellTemplate>? = null
 
     init {
@@ -89,8 +94,42 @@ class TemplateRepository(
                 sourceImagePath = sourceFile.absolutePath,
                 templateName = calibrationDraft.templateName,
                 validationWarning = calibrationDraft.detectionSummary.takeIf { it.contains("保底") || it.contains("未识别到") },
+                outputWidth = calibrationDraft.outputWidth,
+                outputHeight = calibrationDraft.outputHeight,
+                captureProfile = calibrationDraft.captureProfile,
+                detectedScreenRect = calibrationDraft.detectedScreenRect,
+                detectionSummary = calibrationDraft.detectionSummary,
+                overlayCenterX = calibrationDraft.overlayCenterX,
+                overlayCenterY = calibrationDraft.overlayCenterY,
+                overlayWidth = calibrationDraft.overlayWidth,
+                overlayHeight = calibrationDraft.overlayHeight,
+                overlayCornerRadius = calibrationDraft.overlayCornerRadius,
+                defaultOverlayCenterX = calibrationDraft.defaultOverlayCenterX,
+                defaultOverlayCenterY = calibrationDraft.defaultOverlayCenterY,
+                defaultOverlayWidth = calibrationDraft.defaultOverlayWidth,
+                defaultOverlayHeight = calibrationDraft.defaultOverlayHeight,
+                defaultOverlayCornerRadius = calibrationDraft.defaultOverlayCornerRadius,
             )
         }
+    }
+
+    suspend fun importPreparedTemplateDraft(
+        draft: TemplateImportDraft,
+    ): TemplateImportResult = mutex.withLock {
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                persistImportDraft(draft)
+            }.getOrElse { throwable ->
+                logger.e(TAG, "自动导入模板失败", throwable)
+                TemplateImportResult(
+                    success = false,
+                    message = throwable.message ?: "自动导入模板失败",
+                )
+            }
+        }
+
+        cachedTemplates = loadTemplatesInternal()
+        result
     }
 
     suspend fun importPreparedTemplate(
@@ -187,6 +226,8 @@ class TemplateRepository(
     }
 
     suspend fun loadFrameBitmap(template: ShellTemplate): Bitmap = withContext(Dispatchers.IO) {
+        // 运行时只消费完整 frame.png。frameBase/topHoleOverlay 是导入阶段实验产物，
+        // 不能参与当前正式合成链路，否则顶部孔位会被拆层逻辑和内联 frame 逻辑同时影响。
         decodeBitmapPath(template.frameAsset)
     }
 
@@ -204,9 +245,13 @@ class TemplateRepository(
             json.decodeFromString<TemplateListAsset>(inputStream.bufferedReader().readText())
         }
 
-        return templateList.templates.map { assetPath ->
+        return templateList.templates.mapNotNull { assetPath ->
             val config = context.assets.open(assetPath).use { inputStream ->
                 json.decodeFromString<TemplateConfig>(inputStream.bufferedReader().readText())
+            }
+            if (config.templateVersion < ShellTemplate.CURRENT_TEMPLATE_VERSION) {
+                logger.e(TAG, "跳过旧版本内置模板 asset=$assetPath，需要重新导入/更新模板资产")
+                return@mapNotNull null
             }
             ShellTemplate.fromConfig(config, isBuiltIn = true)
         }
@@ -228,6 +273,9 @@ class TemplateRepository(
 
                 runCatching {
                     val config = json.decodeFromString<TemplateConfig>(configFile.readText())
+                    if (config.templateVersion < ShellTemplate.CURRENT_TEMPLATE_VERSION) {
+                        throw IllegalStateException("模板版本过旧，需要重新导入模板")
+                    }
                     ShellTemplate.fromConfig(
                         config = config,
                         isBuiltIn = false,
@@ -265,26 +313,38 @@ class TemplateRepository(
         }
 
         val frameBitmap = decodeBitmapPath(sourceFile.absolutePath)
-        val normalizedFrame = normalizeImportedFrame(frameBitmap)
-        val detection = detectScreenOpening(normalizedFrame)
-        if (!frameBitmap.isRecycled) {
-            frameBitmap.recycle()
-        }
-        if (!normalizedFrame.isRecycled) {
-            normalizedFrame.recycle()
-        }
+        val processedTemplate = templateImportPipeline.processTemplate(
+            templateId = "draft",
+            templateName = templateNameOverride ?: sourceFile.nameWithoutExtension,
+            originalFrame = frameBitmap,
+        )
+        val geometry = processedTemplate.geometryDerived
+        val outputWidth = processedTemplate.frameBitmap.width
+        val outputHeight = processedTemplate.frameBitmap.height
+        val captureProfile = deviceCaptureProfileProvider.readProfile()
+        val overlay = createDefaultCalibrationOverlay(
+            detectedScreenRect = geometry.visibleBounds,
+            outputWidth = outputWidth,
+            outputHeight = outputHeight,
+            aspectRatio = captureProfile.captureAspectRatio,
+        )
+        if (!frameBitmap.isRecycled) frameBitmap.recycle()
+        processedTemplate.recycle()
 
         return TemplateCalibrationDraft(
             sourceImagePath = sourceFile.absolutePath,
             templateName = templateNameOverride?.trim()?.takeIf { it.isNotBlank() }
                 ?: sourceFile.nameWithoutExtension.ifBlank { "我的模板" },
-            outputWidth = detection.outputWidth,
-            outputHeight = detection.outputHeight,
-            previewScreenshotWidth = PREVIEW_SCREENSHOT_WIDTH,
-            previewScreenshotHeight = PREVIEW_SCREENSHOT_HEIGHT,
-            detectedScreenRect = detection.screenRect,
-            detectionSummary = detection.summary,
-            shrinkPixels = DEFAULT_SHRINK_PIXELS,
+            outputWidth = outputWidth,
+            outputHeight = outputHeight,
+            captureProfile = captureProfile,
+            detectedScreenRect = geometry.visibleBounds,
+            detectionSummary = "已通过新模板导入流水线生成 screenMask 与裁剪几何",
+            overlayCenterX = overlay.centerX,
+            overlayCenterY = overlay.centerY,
+            overlayWidth = overlay.width,
+            overlayHeight = overlay.height,
+            overlayCornerRadius = overlay.cornerRadius,
         )
     }
 
@@ -294,33 +354,56 @@ class TemplateRepository(
         }
 
         val frameBitmap = decodeBitmapPath(draft.sourceImagePath)
-        val normalizedFrame = normalizeImportedFrame(frameBitmap)
-        val detection = detectScreenOpening(normalizedFrame)
+        val processedTemplate = runCatching {
+            templateImportPipeline.processTemplate(
+                templateId = "draft",
+                templateName = draft.templateName,
+                originalFrame = frameBitmap,
+            )
+        }.onFailure { throwable ->
+            logger.e(TAG, "模板预处理流水线失败", throwable)
+        }.getOrThrow()
+        val derivedGeometry = processedTemplate.geometryDerived
         val finalRect = draft.finalScreenRect.normalizedWithin(
             width = draft.outputWidth,
             height = draft.outputHeight,
         )
-        val rawAdjustedMask = buildAdjustedMask(
-            baseMask = detection.maskBitmap,
-            finalRect = finalRect,
-        )
-        val finalMask = normalizeImportedMask(source = rawAdjustedMask)
+        val finalContentClipRect = draft.finalContentClipRect
+        val finalMask = checkNotNull(processedTemplate.maskBitmap) {
+            "模板预处理未生成 screenMask"
+        }
+        val topFeature = processedTemplate.topFeature?.toTopFeatureAnchor()
 
         try {
             val templateId = buildUserTemplateId()
             val targetDirectory = File(userTemplatesRoot(), templateId).apply { mkdirs() }
             val frameFile = File(targetDirectory, "frame.png")
+            val frameBaseFile = File(targetDirectory, "frameBase.png")
+            val topHoleOverlayFile = File(targetDirectory, "topHoleOverlay.png")
             val previewFile = File(targetDirectory, "preview.png")
             val maskFile = File(targetDirectory, "screen_mask.png")
             val configFile = File(targetDirectory, USER_TEMPLATE_CONFIG_NAME)
 
             frameFile.outputStream().use { output ->
-                check(normalizedFrame.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                check(processedTemplate.frameBitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                     "无法保存模板外框"
                 }
             }
+            frameBaseFile.outputStream().use { output ->
+                check(processedTemplate.frameBaseBitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                    "无法保存模板基础外框"
+                }
+            }
+            val topHoleOverlayAsset = processedTemplate.topHoleOverlayBitmap?.let { overlay ->
+                topHoleOverlayFile.outputStream().use { output ->
+                    check(overlay.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                        "无法保存模板顶部孔位层"
+                    }
+                }
+                topHoleOverlayFile.absolutePath
+            }
             previewFile.outputStream().use { output ->
-                check(normalizedFrame.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                check(processedTemplate.frameBitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                     "无法保存模板预览"
                 }
             }
@@ -333,15 +416,50 @@ class TemplateRepository(
             val config = TemplateConfig(
                 id = templateId,
                 name = draft.templateName.ifBlank { "我的模板" },
+                templateVersion = ShellTemplate.CURRENT_TEMPLATE_VERSION,
                 frameAsset = frameFile.absolutePath,
+                frameBaseAsset = frameBaseFile.absolutePath,
+                topHoleOverlayAsset = topHoleOverlayAsset,
                 previewAsset = previewFile.absolutePath,
                 logicalWidth = draft.outputWidth,
                 logicalHeight = draft.outputHeight,
                 outputWidth = draft.outputWidth,
                 outputHeight = draft.outputHeight,
                 screenRect = finalRect,
-                cornerRadius = 0f,
+                cornerRadius = draft.overlayCornerRadius,
                 screenMaskBitmap = maskFile.absolutePath,
+                calibration = TemplateCalibration(
+                    enabled = true,
+                    captureProfile = draft.captureProfile,
+                    captureWidth = draft.captureProfile.captureWidth,
+                    captureHeight = draft.captureProfile.captureHeight,
+                    captureAspectRatio = draft.captureProfile.captureAspectRatio,
+                    overlayCenterX = draft.overlayCenterX,
+                    overlayCenterY = draft.overlayCenterY,
+                    overlayWidth = draft.overlayWidth,
+                    overlayHeight = draft.overlayHeight,
+                    overlayCornerRadius = draft.overlayCornerRadius,
+                    visibleBounds = finalRect,
+                    screenBounds = finalRect,
+                    contentClipRect = finalContentClipRect,
+                    updatedAt = System.currentTimeMillis(),
+                    physicalModeWidth = draft.captureProfile.physicalModeWidth,
+                    physicalModeHeight = draft.captureProfile.physicalModeHeight,
+                    densityDpi = draft.captureProfile.densityDpi,
+                ),
+                visibleBounds = finalRect,
+                safeTopBand = derivedGeometry.safeTopBand,
+                contentClipRect = finalContentClipRect,
+                topSuppressionRect = derivedGeometry.topSuppressionRect,
+                topHoleOverlayRect = derivedGeometry.topHoleOverlayRect,
+                topFeatureAvoidRect = derivedGeometry.topFeatureAvoidRect,
+                statusBarSafeZones = derivedGeometry.statusBarSafeZones,
+                topLayerMode = if (topHoleOverlayAsset != null) TemplateTopLayerMode.SEPARATED else TemplateTopLayerMode.INLINE,
+                templateTopFeature = topFeature,
+                purity = TemplatePuritySummary(
+                    overallScore = processedTemplate.purityReport.overallScore,
+                    warnings = processedTemplate.purityReport.warnings,
+                ),
                 screenInsetPx = DEFAULT_IMPORTED_SCREEN_INSET_PX,
                 maskBleedPx = DEFAULT_IMPORTED_MASK_BLEED_PX,
                 cutoutBleedPx = DEFAULT_IMPORTED_CUTOUT_BLEED_PX,
@@ -356,30 +474,82 @@ class TemplateRepository(
 
             logger.d(
                 TAG,
-                "已自动生成用户模板 id=$templateId name=${config.name} rect=${finalRect.left},${finalRect.top},${finalRect.right},${finalRect.bottom}",
+                "模板导入完成 id=$templateId name=${config.name} capture=${draft.captureProfile.captureWidth}x${draft.captureProfile.captureHeight} " +
+                    "mode=${draft.captureProfile.physicalModeWidth}x${draft.captureProfile.physicalModeHeight} " +
+                    "overlay=${finalRect.left},${finalRect.top},${finalRect.right},${finalRect.bottom} radius=${draft.overlayCornerRadius}",
             )
             return TemplateImportResult(
                 success = true,
                 templateId = templateId,
-                message = "模板已自动生成",
+                message = "模板已完成标定",
             )
         } finally {
             if (!frameBitmap.isRecycled) {
                 frameBitmap.recycle()
             }
-            if (!normalizedFrame.isRecycled) {
-                normalizedFrame.recycle()
-            }
-            if (!detection.maskBitmap.isRecycled) {
-                detection.maskBitmap.recycle()
-            }
-            if (!rawAdjustedMask.isRecycled) {
-                rawAdjustedMask.recycle()
-            }
-            if (!finalMask.isRecycled) {
-                finalMask.recycle()
-            }
+            processedTemplate?.recycle()
         }
+    }
+
+    private fun persistImportDraft(draft: TemplateImportDraft): TemplateImportResult {
+        return persistDraft(
+            TemplateCalibrationDraft(
+                sourceImagePath = draft.sourceImagePath,
+                templateName = draft.templateName,
+                outputWidth = draft.outputWidth,
+                outputHeight = draft.outputHeight,
+                captureProfile = draft.captureProfile,
+                detectedScreenRect = draft.detectedScreenRect,
+                detectionSummary = draft.detectionSummary,
+                overlayCenterX = draft.overlayCenterX,
+                overlayCenterY = draft.overlayCenterY,
+                overlayWidth = draft.overlayWidth,
+                overlayHeight = draft.overlayHeight,
+                overlayCornerRadius = draft.overlayCornerRadius,
+                showGuides = draft.showGuides,
+                defaultOverlayCenterX = draft.defaultOverlayCenterX,
+                defaultOverlayCenterY = draft.defaultOverlayCenterY,
+                defaultOverlayWidth = draft.defaultOverlayWidth,
+                defaultOverlayHeight = draft.defaultOverlayHeight,
+                defaultOverlayCornerRadius = draft.defaultOverlayCornerRadius,
+            )
+        )
+    }
+
+    fun currentDeviceCaptureProfile(): DeviceCaptureProfile {
+        return deviceCaptureProfileProvider.readProfile()
+    }
+
+    private fun createDefaultCalibrationOverlay(
+        detectedScreenRect: ScreenRect,
+        outputWidth: Int,
+        outputHeight: Int,
+        aspectRatio: Float,
+    ): CalibrationOverlaySeed {
+        val safeAspect = aspectRatio.takeIf { it > 0f } ?: (outputWidth / outputHeight.toFloat())
+        val detectedWidth = detectedScreenRect.width.toFloat().coerceAtLeast(1f)
+        val detectedHeight = detectedScreenRect.height.toFloat().coerceAtLeast(1f)
+        var width = detectedWidth * 0.96f
+        var height = width / safeAspect
+        if (height > detectedHeight * 0.96f) {
+            height = detectedHeight * 0.96f
+            width = height * safeAspect
+        }
+        if (width > outputWidth * 0.96f) {
+            width = outputWidth * 0.96f
+            height = width / safeAspect
+        }
+        if (height > outputHeight * 0.96f) {
+            height = outputHeight * 0.96f
+            width = height * safeAspect
+        }
+        return CalibrationOverlaySeed(
+            centerX = detectedScreenRect.left + detectedWidth / 2f,
+            centerY = detectedScreenRect.top + detectedHeight / 2f,
+            width = width.coerceAtLeast(24f),
+            height = height.coerceAtLeast(24f),
+            cornerRadius = minOf(width, height) * 0.075f,
+        )
     }
 
     private fun stageSourceImage(
@@ -834,27 +1004,46 @@ class TemplateRepository(
         const val USER_TEMPLATE_ROOT = "user_templates"
         const val USER_TEMPLATE_CONFIG_NAME = "template.json"
         const val LEGACY_IMPORTED_TEMPLATE_DIR = "custom_templates"
-        const val PREVIEW_SCREENSHOT_WIDTH = 1440
-        const val PREVIEW_SCREENSHOT_HEIGHT = 3168
-        const val DEFAULT_SHRINK_PIXELS = 1
         const val DEFAULT_IMPORTED_SCREEN_INSET_PX = 0f
         const val DEFAULT_IMPORTED_MASK_BLEED_PX = 0.75f
         const val DEFAULT_IMPORTED_CUTOUT_BLEED_PX = 1.2f
-        const val DEFAULT_IMPORTED_CONTENT_OVERSCAN_PX = 1.5f
-        const val DEFAULT_ALPHA_LOW_THRESHOLD = 24
-        const val DEFAULT_ALPHA_HIGH_THRESHOLD = 232
+        const val DEFAULT_IMPORTED_CONTENT_OVERSCAN_PX = 3.0f
+        const val DEFAULT_ALPHA_LOW_THRESHOLD = 32
+        const val DEFAULT_ALPHA_HIGH_THRESHOLD = 208
         const val MIN_SCREEN_COMPONENT_AREA_RATIO = 0.08f
         const val NORMALIZE_CLEAR_ALPHA_THRESHOLD = 12
         const val NORMALIZE_FRINGE_ALPHA_THRESHOLD = 224
         const val NORMALIZE_FRINGE_LUMINANCE_THRESHOLD = 185
         const val NORMALIZE_FRINGE_CHROMA_THRESHOLD = 24
     }
+
+    private data class CalibrationOverlaySeed(
+        val centerX: Float,
+        val centerY: Float,
+        val width: Float,
+        val height: Float,
+        val cornerRadius: Float,
+    )
 }
 
-private fun ScreenRect.normalizedWithin(width: Int, height: Int): ScreenRect {
-    val left = left.coerceAtLeast(0).coerceAtMost(width - 2)
-    val top = top.coerceAtLeast(0).coerceAtMost(height - 2)
-    val right = right.coerceAtLeast(left + 1).coerceAtMost(width)
-    val bottom = bottom.coerceAtLeast(top + 1).coerceAtMost(height)
-    return ScreenRect(left = left, top = top, right = right, bottom = bottom)
+private fun FittedFeature.toTopFeatureAnchor(): TopFeatureAnchor {
+    return TopFeatureAnchor(
+        type = type,
+        centerX = bounds.centerX(),
+        centerY = bounds.centerY(),
+        width = bounds.width(),
+        height = bounds.height(),
+        confidence = confidence,
+    )
+}
+
+private fun ImportedTemplate.recycle() {
+    if (!frameBitmap.isRecycled) frameBitmap.recycle()
+    if (!frameBaseBitmap.isRecycled) frameBaseBitmap.recycle()
+    topHoleOverlayBitmap?.let { overlay ->
+        if (!overlay.isRecycled) overlay.recycle()
+    }
+    maskBitmap?.let { mask ->
+        if (!mask.isRecycled) mask.recycle()
+    }
 }

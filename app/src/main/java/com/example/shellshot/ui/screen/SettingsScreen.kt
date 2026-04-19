@@ -1,8 +1,9 @@
 package com.example.shellshot.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,15 +20,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,8 +36,13 @@ import com.example.shellshot.media.ScreenshotDirectoryRecommendation
 import com.example.shellshot.ui.MainUiState
 import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
-import com.example.shellshot.ui.components.LiquidGlassSwitch
+import com.example.shellshot.ui.components.BentoSwitch
 import com.example.shellshot.ui.components.ZipStaggeredReveal
+import com.example.shellshot.ui.components.bentoCard
+import com.example.shellshot.ui.theme.AppTypography
+import com.example.shellshot.ui.theme.ShellColors
+import com.example.shellshot.R
+import androidx.compose.ui.res.stringResource
 import com.kyant.backdrop.Backdrop
 
 @Composable
@@ -56,60 +61,58 @@ fun SettingsScreen(
     onToggleAutoDelete: (Boolean) -> Unit,
     onToggleMediaStoreFallback: (Boolean) -> Unit,
 ) {
-    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val titleColor = if (darkTheme) Color.White else Color.Black
+    // Removed uiState.settings.darkTheme because it doesn't exist. By default using semantic inference:
+    val isDark = androidx.compose.material3.MaterialTheme.colorScheme.background.red < 0.5f
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp),
-        contentPadding = PaddingValues(top = 64.dp, bottom = 142.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
+            .background(ShellColors.background(isDark)),
+        contentPadding = PaddingValues(top = 80.dp, bottom = 142.dp),
     ) {
         item {
             ZipStaggeredReveal(index = 0) {
                 Text(
-                    text = "设置",
-                    fontSize = 32.sp,
-                    lineHeight = 36.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = titleColor,
+                    text = stringResource(R.string.settings_title),
+                    style = AppTypography.displayLarge,
+                    color = ShellColors.textPrimary(isDark),
+                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
                 )
             }
         }
 
         item {
             ZipStaggeredReveal(index = 1) {
-                SettingsGroup(darkTheme = darkTheme) {
+                SettingsGroup(darkTheme = isDark) {
                     SettingItem(
-                        darkTheme = darkTheme,
+                        darkTheme = isDark,
                         icon = AppIconId.Notification,
-                        title = "通知权限",
-                        value = if (uiState.permissionSnapshot.notificationsGranted) "已开启" else "去开启",
+                        title = stringResource(R.string.settings_notifications),
+                        value = if (uiState.permissionSnapshot.notificationsGranted) stringResource(R.string.settings_granted) else stringResource(R.string.settings_required),
                         showDivider = true,
                         onClick = if (uiState.permissionSnapshot.notificationsGranted) onOpenNotificationSettings else onRequestNotifications,
                     )
                     SettingItem(
-                        darkTheme = darkTheme,
+                        darkTheme = isDark,
                         icon = AppIconId.Folder,
-                        title = "所有文件访问",
-                        value = if (uiState.permissionSnapshot.allFilesGranted) "已开启" else "去开启",
+                        title = stringResource(R.string.settings_storage_access),
+                        value = if (uiState.permissionSnapshot.allFilesGranted) stringResource(R.string.settings_granted) else stringResource(R.string.settings_required),
                         showDivider = true,
                         onClick = onOpenManageAllFilesSettings,
                     )
                     SettingItem(
-                        darkTheme = darkTheme,
+                        darkTheme = isDark,
                         icon = AppIconId.Gallery,
-                        title = "图片访问",
+                        title = stringResource(R.string.settings_media_access),
                         value = uiState.mediaAccessLabel,
                         showDivider = true,
                         onClick = onRequestMediaAccess,
                     )
                     SettingItem(
-                        darkTheme = darkTheme,
+                        darkTheme = isDark,
                         icon = AppIconId.Battery,
-                        title = "电量优化",
-                        value = "去设置",
+                        title = stringResource(R.string.settings_battery_opt),
+                        value = stringResource(R.string.settings_configure),
                         showDivider = false,
                         onClick = onOpenBatteryOptimizationSettings,
                     )
@@ -118,32 +121,33 @@ fun SettingsScreen(
         }
 
         item {
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        item {
             ZipStaggeredReveal(index = 2) {
-                SettingsGroup(darkTheme = darkTheme) {
+                SettingsGroup(darkTheme = isDark) {
                     SettingToggle(
-                        darkTheme = darkTheme,
+                        darkTheme = isDark,
                         icon = AppIconId.ImageOff,
-                        title = "媒体兜底",
+                        title = stringResource(R.string.settings_media_store_fallback),
                         checked = uiState.settings.mediaStoreFallbackEnabled,
-                        liquidBackdrop = liquidBackdrop,
                         onCheckedChange = onToggleMediaStoreFallback,
                         showDivider = true,
                     )
                     SettingToggle(
-                        darkTheme = darkTheme,
+                        darkTheme = isDark,
                         icon = AppIconId.Delete,
-                        title = "处理后删除原图",
+                        title = stringResource(R.string.settings_auto_delete),
                         checked = uiState.settings.autoDeleteOriginal,
-                        liquidBackdrop = liquidBackdrop,
                         onCheckedChange = onToggleAutoDelete,
                         showDivider = true,
                     )
                     SettingToggle(
-                        darkTheme = darkTheme,
+                        darkTheme = isDark,
                         icon = AppIconId.Bug,
-                        title = "调试模式",
+                        title = stringResource(R.string.settings_debug_mode),
                         checked = uiState.settings.debugModeEnabled,
-                        liquidBackdrop = liquidBackdrop,
                         onCheckedChange = onToggleDebugMode,
                         showDivider = false,
                     )
@@ -152,9 +156,14 @@ fun SettingsScreen(
         }
 
         item {
+            Spacer(modifier = Modifier.height(32.dp))
+            SectionHeader(text = stringResource(R.string.settings_monitoring_dir), darkTheme = isDark)
+        }
+
+        item {
             ZipStaggeredReveal(index = 3) {
                 ScreenshotDirectoryCard(
-                    darkTheme = darkTheme,
+                    darkTheme = isDark,
                     currentRelativePath = uiState.screenshotDirectoryRelativePath,
                     recommendations = uiState.recommendedScreenshotDirectories,
                     detecting = uiState.detectingScreenshotDirectories,
@@ -167,6 +176,16 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SectionHeader(text: String, darkTheme: Boolean) {
+    Text(
+        text = text.uppercase(),
+        style = AppTypography.labelMedium,
+        color = ShellColors.textTertiary(darkTheme),
+        modifier = Modifier.padding(start = 32.dp, end = 32.dp, bottom = 12.dp),
+    )
+}
+
+@Composable
 private fun SettingsGroup(
     darkTheme: Boolean,
     contentPadding: PaddingValues = PaddingValues(0.dp),
@@ -175,13 +194,8 @@ private fun SettingsGroup(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(40.dp))
-            .background(if (darkTheme) Color(0xFF1C1C1E) else Color.White)
-            .border(
-                1.dp,
-                if (darkTheme) Color.White.copy(alpha = 0.08f) else Color.White,
-                RoundedCornerShape(40.dp),
-            )
+            .padding(horizontal = 20.dp)
+            .bentoCard(darkTheme, cornerRadius = 24.dp)
             .padding(contentPadding),
         content = content,
     )
@@ -196,11 +210,21 @@ private fun SettingItem(
     showDivider: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    
+    val backgroundColor = if (pressed) ShellColors.badgeBg(darkTheme) else Color.Transparent
+
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .background(backgroundColor)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                )
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -208,23 +232,23 @@ private fun SettingItem(
             Spacer(modifier = Modifier.width(16.dp))
             Text(
                 text = title,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (darkTheme) Color.White else Color.Black,
+                style = AppTypography.bodyLarge,
+                color = ShellColors.textPrimary(darkTheme),
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = value,
-                fontSize = 15.sp,
-                color = if (darkTheme) Color(0xFFA1A1AA) else Color.Gray,
+                style = AppTypography.bodyMedium,
+                color = ShellColors.textSecondary(darkTheme),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(modifier = Modifier.width(8.dp))
             AppIcon(
                 icon = AppIconId.ChevronRight,
                 contentDescription = null,
-                tint = if (darkTheme) Color(0xFF636366) else Color.LightGray,
-                modifier = Modifier.padding(start = 8.dp),
+                tint = ShellColors.textTertiary(darkTheme),
+                modifier = Modifier.size(16.dp),
             )
         }
         if (showDivider) GroupDivider(darkTheme)
@@ -237,7 +261,6 @@ private fun SettingToggle(
     icon: AppIconId,
     title: String,
     checked: Boolean,
-    liquidBackdrop: Backdrop,
     onCheckedChange: (Boolean) -> Unit,
     showDivider: Boolean,
 ) {
@@ -252,17 +275,15 @@ private fun SettingToggle(
             Spacer(modifier = Modifier.width(16.dp))
             Text(
                 text = title,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (darkTheme) Color.White else Color.Black,
+                style = AppTypography.bodyLarge,
+                color = ShellColors.textPrimary(darkTheme),
                 modifier = Modifier.weight(1f),
             )
-            LiquidGlassSwitch(
+            BentoSwitch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
-                backdrop = liquidBackdrop,
-                width = 64.dp,
-                height = 28.dp,
+                darkTheme = darkTheme,
+                backdrop = null // Fallback if liquidSwitch uses it
             )
         }
         if (showDivider) GroupDivider(darkTheme)
@@ -278,215 +299,116 @@ private fun ScreenshotDirectoryCard(
     onRefresh: () -> Unit,
     onSelectRecommendation: (String) -> Unit,
 ) {
-    val titleColor = if (darkTheme) Color.White else Color.Black
-    val secondaryColor = if (darkTheme) Color(0xFFA1A1AA) else Color.Gray
-    val accent = Color(0xFF007AFF)
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = 20.dp,
-                shape = RoundedCornerShape(40.dp),
-                spotColor = Color.Black.copy(alpha = if (darkTheme) 0.5f else 0.05f),
-            )
-            .clip(RoundedCornerShape(40.dp))
-            .background(if (darkTheme) Color(0xFF1C1C1E) else Color.White)
-            .border(
-                1.dp,
-                if (darkTheme) Color.White.copy(alpha = 0.05f) else Color.White,
-                RoundedCornerShape(40.dp),
-            )
-            .padding(28.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 24.dp),
-        ) {
-            AccentIconPlate(icon = AppIconId.Edit, darkTheme = darkTheme, accent = accent)
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(
-                text = "截图目录",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = titleColor,
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(72.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(if (darkTheme) Color.Black.copy(alpha = 0.4f) else Color(0xFFF9F9FB))
-                .border(1.dp, if (darkTheme) Color.White.copy(alpha = 0.05f) else Color.Transparent, RoundedCornerShape(24.dp))
-                .padding(horizontal = 18.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = currentRelativePath,
-                fontSize = 15.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Medium,
-                color = titleColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AccentIconPlate(icon = AppIconId.Sparkles, darkTheme = darkTheme, accent = accent)
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = "自动推荐",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = titleColor,
-                )
-            }
-            Text(
-                text = if (detecting) "检测中" else "刷新",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFF007AFF),
-                modifier = Modifier.clickable(enabled = !detecting, onClick = onRefresh),
-            )
-        }
-
-        when {
-            detecting -> DirectoryRecommendationBox(
-                darkTheme = darkTheme,
-                title = "正在检测推荐目录",
-                supporting = "检测完成后会在这里展示推荐结果。",
-            )
-            recommendations.isEmpty() -> DirectoryRecommendationBox(
-                darkTheme = darkTheme,
-                title = "暂无推荐目录",
-                supporting = "先截几张图后再刷新。",
-            )
-            else -> Column(
+    SettingsGroup(darkTheme = darkTheme) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(40.dp))
-                    .background(if (darkTheme) Color.White.copy(alpha = 0.02f) else Color(0xFFF9F9FB).copy(alpha = 0.5f))
-                    .border(1.dp, if (darkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFF2F2F7), RoundedCornerShape(40.dp))
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
+                Text(
+                    text = stringResource(R.string.settings_active_target),
+                    style = AppTypography.bodyLarge,
+                    color = ShellColors.textPrimary(darkTheme),
+                )
+                Text(
+                    text = if (detecting) stringResource(R.string.settings_scanning) else stringResource(R.string.settings_rescan),
+                    style = AppTypography.labelMedium,
+                    color = ShellColors.textSecondary(darkTheme),
+                    modifier = Modifier.clickable(enabled = !detecting, onClick = onRefresh),
+                )
+            }
+            
+            GroupDivider(darkTheme = darkTheme)
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconPlate(icon = AppIconId.Folder, isDark = darkTheme)
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = currentRelativePath,
+                    style = AppTypography.bodyMedium,
+                    color = ShellColors.textSecondary(darkTheme),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (recommendations.isNotEmpty()) {
                 recommendations.forEachIndexed { index, recommendation ->
+                    GroupDivider(darkTheme = darkTheme)
                     val current = recommendation.relativePath.equals(currentRelativePath, ignoreCase = true)
-                    if (index > 0) {
-                        HorizontalDivider(color = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7))
-                    }
+                    
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val pressed by interactionSource.collectIsPressedAsState()
+                    val backgroundColor = if (pressed) ShellColors.badgeBg(darkTheme) else Color.Transparent
+
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelectRecommendation(recommendation.relativePath) },
+                            .background(backgroundColor)
+                            .clickable(interactionSource = interactionSource, indication = null) {
+                                onSelectRecommendation(recommendation.relativePath)
+                            }
+                            .padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = recommendation.relativePath,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (current) Color(0xFF007AFF) else titleColor,
+                                style = AppTypography.bodyLarge,
+                                color = if (current) ShellColors.textPrimary(darkTheme) else ShellColors.textSecondary(darkTheme),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
                             if (current) {
-                                Text("当前", fontSize = 12.sp, color = Color(0xFF007AFF), fontWeight = FontWeight.Bold)
+                                AppIcon(AppIconId.Sparkles, contentDescription = null, tint = ShellColors.textPrimary(darkTheme), modifier = Modifier.size(16.dp))
                             }
                         }
                         Text(
                             text = recommendation.reason,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp,
-                            color = secondaryColor,
+                            style = AppTypography.bodyMedium,
+                            color = ShellColors.textTertiary(darkTheme),
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
+            } else if (!detecting) {
+                 GroupDivider(darkTheme = darkTheme)
+                 Text(
+                    text = stringResource(R.string.settings_insufficient_media),
+                    style = AppTypography.bodyMedium,
+                    color = ShellColors.textTertiary(darkTheme),
+                    modifier = Modifier.padding(20.dp)
+                 )
             }
         }
     }
 }
 
 @Composable
-private fun DirectoryRecommendationBox(
-    darkTheme: Boolean,
-    title: String,
-    supporting: String,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(40.dp))
-            .background(if (darkTheme) Color.White.copy(alpha = 0.02f) else Color(0xFFF9F9FB).copy(alpha = 0.5f))
-            .border(1.dp, if (darkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFF2F2F7), RoundedCornerShape(40.dp))
-            .padding(24.dp),
-    ) {
-        Text(
-            text = title,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (darkTheme) Color.White else Color.Black,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = supporting,
-            fontSize = 14.sp,
-            color = Color.Gray,
-        )
-    }
-}
-
-@Composable
-private fun AccentIconPlate(icon: AppIconId, darkTheme: Boolean, accent: Color) {
+private fun IconPlate(icon: AppIconId, isDark: Boolean) {
+    // Premium monochrome plate
     Box(
         modifier = Modifier
             .size(32.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7))
-            .border(
-                width = 0.5.dp,
-                color = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E5EA),
-                shape = RoundedCornerShape(8.dp),
-            ),
+            .background(ShellColors.badgeBg(isDark)),
         contentAlignment = Alignment.Center,
     ) {
         AppIcon(
             icon = icon,
             contentDescription = null,
-            tint = if (darkTheme) Color.White else accent,
-            modifier = Modifier.size(18.dp),
-        )
-    }
-}
-
-@Composable
-private fun IconPlate(icon: AppIconId, darkTheme: Boolean) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .background(if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7), RoundedCornerShape(8.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        AppIcon(
-            icon = icon,
-            contentDescription = null,
-            tint = if (darkTheme) Color.White else Color.Black,
-            modifier = Modifier.size(20.dp),
+            tint = ShellColors.textPrimary(isDark),
+            modifier = Modifier.size(18.dp).align(Alignment.Center),
         )
     }
 }
@@ -494,8 +416,8 @@ private fun IconPlate(icon: AppIconId, darkTheme: Boolean) {
 @Composable
 private fun GroupDivider(darkTheme: Boolean) {
     HorizontalDivider(
-        color = if (darkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7),
-        thickness = 1.dp,
+        color = ShellColors.border(darkTheme),
+        thickness = 0.5.dp,
         modifier = Modifier.padding(start = 68.dp),
     )
 }

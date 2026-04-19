@@ -89,8 +89,8 @@ class ShellLogger(
     }
 
     private companion object {
-        const val DEBUG_MIN_INTERVAL_MS = 650L
-        const val SAME_DEBUG_SUPPRESS_WINDOW_MS = 4_000L
+        const val DEBUG_MIN_INTERVAL_MS = 2_000L
+        const val SAME_DEBUG_SUPPRESS_WINDOW_MS = 8_000L
         const val RECENT_DEBUG_KEY_LIMIT = 64
 
         val noisyDebugTags = setOf(
@@ -105,22 +105,45 @@ class ShellLogger(
             "监听链已挂起 reason=cleanup:onDestroy",
             "服务已销毁 explicitStop=true reason=onDestroy",
             "Skip self restart",
+            "开始解码",
+            "解码成功",
+            "解码目标命中",
+            "解码目标失败",
+            "开始合成",
+            "合成成功 path=",
+            "开始保存",
+            "保存成功 output=",
+            "任务已就绪",
+            "复用已确认候选",
+            "已确认候选失效",
+            "候选任务入队",
+            "跳过入队",
+            "媒体库兜底未发现截图",
+            "watchdog 探测跳过",
+            "配置路径候选不可用",
+            "稳定性检查已暂停",
+            "文件仍未稳定",
+            "合成指标",
+            "compose debug",
         )
 
         val importantDebugFragments = listOf(
-            "截图",
-            "模板",
+            "套壳成功",
+            "合成后验警告",
+            "合成失败",
+            "保存失败",
+            "删除原图失败",
+            "任务终态失败",
+            "任务待重试",
+            "任务跳过",
+            "模板导入",
+            "模板预处理",
+            "已删除用户模板",
             "保存",
-            "完成",
-            "启动",
-            "停止",
-            "监听",
+            "启动监听",
+            "停止监听",
+            "监听服务",
             "权限",
-            "screenshot",
-            "template",
-            "saved",
-            "started",
-            "stopped",
         )
     }
 }
