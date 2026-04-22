@@ -5,8 +5,9 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,70 +16,45 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.padding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.shellshot.permissions.SpecialAccessNavigator
+import com.example.shellshot.ui.AppTab
 import com.example.shellshot.ui.MainViewModel
-import com.example.shellshot.ui.components.AppBackdrop
+import com.example.shellshot.ui.components.DockItem
+import com.example.shellshot.ui.components.FloatingDock
+import com.example.shellshot.ui.components.ShellShotBackdrop
+import com.example.shellshot.ui.screen.HomeTabScreen
+import com.example.shellshot.ui.screen.LogsTabScreen
+import com.example.shellshot.ui.screen.SettingsTabScreen
+import com.example.shellshot.ui.screen.TemplatesTabScreen
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 import com.example.shellshot.ui.components.AppIconId
-import com.example.shellshot.ui.components.BottomDock
-import com.example.shellshot.ui.components.NavItem
-import com.example.shellshot.ui.screen.HomeScreen
-import com.example.shellshot.ui.screen.LogScreen
-import com.example.shellshot.ui.screen.SettingsScreen
-import com.example.shellshot.ui.screen.TemplateScreen
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
-private enum class AppTab(val navItem: NavItem) {
-    Home(NavItem(id = "home", label = "首页", icon = AppIconId.Home)),
-    Templates(NavItem(id = "templates", label = "模板", icon = AppIconId.Template)),
-    Settings(NavItem(id = "settings", label = "设置", icon = AppIconId.Settings)),
-    Logs(NavItem(id = "logs", label = "日志", icon = AppIconId.Terminal)),
-}
-
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun ShellShotApp(
     viewModel: MainViewModel,
-    darkTheme: Boolean,
-    onToggleDarkTheme: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var currentTab by rememberSaveable { mutableStateOf(AppTab.Home) }
-    var templateDetailOpen by rememberSaveable { mutableStateOf(false) }
-    val appBackdrop = rememberLayerBackdrop()
-    val controlBackdrop = rememberCanvasBackdrop {
-        drawRect(if (darkTheme) Color.Black else Color(0xFFE8EAEE))
-        drawCircle(
-            color = Color(0xFF007AFF).copy(alpha = if (darkTheme) 0.06f else 0.08f),
-            radius = size.minDimension * 0.55f,
-            center = androidx.compose.ui.geometry.Offset(size.width * 0.78f, size.height * 0.18f),
-        )
-        drawCircle(
-            color = Color.White.copy(alpha = if (darkTheme) 0.03f else 0.42f),
-            radius = size.minDimension * 0.65f,
-            center = androidx.compose.ui.geometry.Offset(size.width * 0.18f, size.height * 0.72f),
-        )
-    }
+    val systemDarkTheme = isSystemInDarkTheme()
+    val hazeState = rememberHazeState()
 
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -103,7 +79,7 @@ fun ShellShotApp(
                 )
             }
             viewModel.prepareTemplateImport(uri)
-            currentTab = AppTab.Templates
+            viewModel.selectTab(AppTab.Templates)
         }
     }
 
@@ -111,16 +87,8 @@ fun ShellShotApp(
         viewModel.onAppVisible(context)
     }
 
-    LaunchedEffect(uiState.settings.debugModeEnabled, currentTab) {
-        if (!uiState.settings.debugModeEnabled && currentTab == AppTab.Logs) {
-            currentTab = AppTab.Home
-        }
-    }
-
-    LaunchedEffect(currentTab) {
-        if (currentTab != AppTab.Templates) {
-            templateDetailOpen = false
-        }
+    LaunchedEffect(systemDarkTheme) {
+        viewModel.updateSystemDarkTheme(systemDarkTheme)
     }
 
     DisposableEffect(lifecycleOwner, context) {
@@ -148,134 +116,171 @@ fun ShellShotApp(
     }
 
     val dockItems = listOf(
-        AppTab.Home.navItem,
-        AppTab.Templates.navItem,
-        AppTab.Settings.navItem,
-        AppTab.Logs.navItem.copy(visible = uiState.settings.debugModeEnabled),
+        DockItem(tab = AppTab.Home, label = "首页", icon = AppIconId.Home),
+        DockItem(tab = AppTab.Templates, label = "模板", icon = AppIconId.Template),
+        DockItem(tab = AppTab.Settings, label = "设置", icon = AppIconId.Settings),
+        DockItem(tab = AppTab.Logs, label = "日志", icon = AppIconId.Terminal, visible = uiState.settings.debugModeEnabled),
     )
+    val detailMode = uiState.templateOverviewVisible ||
+        uiState.templateOverviewDetailId != null ||
+        uiState.templatePendingDeleteId != null ||
+        uiState.templateImportPreparing ||
+        uiState.templateImportDraft != null
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (darkTheme) Color.Black else Color(0xFFE8EAEE)),
-    ) {
+    SharedTransitionLayout {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .layerBackdrop(appBackdrop),
+                .hazeSource(hazeState),
         ) {
-            AppBackdrop(modifier = Modifier.fillMaxSize())
+            ShellShotBackdrop(
+                isDark = uiState.resolvedDarkTheme,
+                modifier = Modifier.fillMaxSize(),
+            )
 
             AnimatedContent(
-                targetState = currentTab,
-                label = "zip_frontend_crossfade",
-                transitionSpec = {
-                    (
-                        fadeIn(
-                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
-                        ) + slideInVertically(
-                            initialOffsetY = { 12 },
-                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
-                        ) + scaleIn(
-                            initialScale = 0.995f,
-                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
-                        )
-                    ).togetherWith(
-                        fadeOut(
-                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-                        ) + slideOutVertically(
-                            targetOffsetY = { -12 },
-                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-                        ) + scaleOut(
-                            targetScale = 0.995f,
-                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-                        )
-                    ).using(SizeTransform(clip = false))
-                },
+                targetState = uiState.activeTab,
                 modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(400)) +
+                        slideInVertically(initialOffsetY = { 15 }) +
+                        scaleIn(initialScale = 0.98f, animationSpec = tween(400))) togetherWith
+                        (fadeOut(animationSpec = tween(220)) +
+                            slideOutVertically(targetOffsetY = { -15 }) +
+                            scaleOut(targetScale = 0.98f, animationSpec = tween(220)))
+                },
+                label = "app-tabs",
             ) { tab ->
-                when (tab) {
-                    AppTab.Home -> HomeScreen(
-                        modifier = Modifier.fillMaxSize(),
-                        uiState = uiState,
-                        darkTheme = darkTheme,
-                        liquidBackdrop = controlBackdrop,
-                        onToggleDarkTheme = onToggleDarkTheme,
-                        onToggleMonitoring = onToggleMonitoring,
-                        onSelectTemplate = {
-                            currentTab = AppTab.Templates
-                            viewModel.selectTemplate(it)
-                        },
-                        onOpenTemplates = { currentTab = AppTab.Templates },
-                        onOpenSettings = { currentTab = AppTab.Settings },
-                    )
-
-                    AppTab.Templates -> TemplateScreen(
-                        modifier = Modifier.fillMaxSize(),
-                        uiState = uiState,
-                        onSelectTemplate = viewModel::selectTemplate,
-                        onUploadTemplateImage = { uploadTemplateImageLauncher.launch(arrayOf("image/*")) },
-                        onDeleteTemplate = viewModel::deleteTemplate,
-                        onUpdateImportName = viewModel::updateTemplateImportName,
-                        onUpdateCalibration = viewModel::updateTemplateCalibration,
-                        onResetCalibration = viewModel::resetTemplateCalibration,
-                        onToggleCalibrationGuides = viewModel::setTemplateCalibrationGuidesVisible,
-                        onConfirmImport = viewModel::confirmTemplateImport,
-                        onCancelImport = viewModel::cancelTemplateImport,
-                        onDismissImportAlert = viewModel::dismissTemplateImportAlert,
-                        onCancelPage = { currentTab = AppTab.Home },
-                        onDetailToggle = { templateDetailOpen = it },
-                    )
-
-                    AppTab.Settings -> SettingsScreen(
-                        modifier = Modifier.fillMaxSize(),
-                        uiState = uiState,
-                        liquidBackdrop = controlBackdrop,
-                        onRequestNotifications = {
-                            if (uiState.permissionSnapshot.notificationsGranted) {
-                                SpecialAccessNavigator.openNotificationSettings(context)
-                            } else {
-                                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            }
-                        },
-                        onRequestMediaAccess = {
-                            mediaAccessLauncher.launch(
-                                arrayOf(
-                                    Manifest.permission.READ_MEDIA_IMAGES,
-                                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
-                                ),
-                            )
-                        },
-                        onOpenNotificationSettings = { SpecialAccessNavigator.openNotificationSettings(context) },
-                        onOpenManageAllFilesSettings = { SpecialAccessNavigator.openManageAllFilesSettings(context) },
-                        onToggleDebugMode = viewModel::setDebugModeEnabled,
-                        onRefreshScreenshotDirectories = viewModel::refreshScreenshotDirectoryRecommendations,
-                        onUpdateScreenshotDirectory = { relativePath ->
-                            viewModel.updateScreenshotRelativePath(context, relativePath)
-                        },
-                        onToggleAutoDelete = viewModel::setAutoDeleteOriginal,
-                        onToggleMediaStoreFallback = viewModel::setMediaStoreFallbackEnabled,
-                        onOpenBatteryOptimizationSettings = { SpecialAccessNavigator.openBatteryOptimizationSettings(context) },
-                    )
-
-                    AppTab.Logs -> LogScreen(
-                        modifier = Modifier.fillMaxSize(),
-                        logs = uiState.logs,
-                    )
-                }
+                AppTabContent(
+                    tab = tab,
+                    uiState = uiState,
+                    hazeState = hazeState,
+                    animatedVisibilityScope = this,
+                    onToggleMonitoring = onToggleMonitoring,
+                    onOpenTemplates = {
+                        viewModel.setTemplateCarouselAnchor(uiState.selectedTemplate?.id)
+                        viewModel.selectTab(AppTab.Templates)
+                    },
+                    onSelectTemplateAndOpen = {
+                        viewModel.selectTemplate(it)
+                        viewModel.selectTab(AppTab.Templates)
+                    },
+                    onToggleThemeQuick = viewModel::toggleThemeQuick,
+                    onRequestNotifications = {
+                        if (uiState.permissionSnapshot.notificationsGranted) {
+                            SpecialAccessNavigator.openNotificationSettings(context)
+                        } else {
+                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    },
+                    onRequestMediaAccess = {
+                        mediaAccessLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.READ_MEDIA_IMAGES,
+                                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                            ),
+                        )
+                    },
+                    onOpenManageAllFilesSettings = { SpecialAccessNavigator.openManageAllFilesSettings(context) },
+                    onOpenBatteryOptimizationSettings = { SpecialAccessNavigator.openBatteryOptimizationSettings(context) },
+                    onUploadTemplateImage = { uploadTemplateImageLauncher.launch(arrayOf("image/*")) },
+                    viewModel = viewModel,
+                )
             }
-        }
 
-        BottomDock(
-            items = dockItems,
-            selectedItemId = currentTab.navItem.id,
-            darkTheme = darkTheme,
-            liquidBackdrop = appBackdrop,
-            hidden = templateDetailOpen,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            onItemSelected = { itemId ->
-                currentTab = AppTab.entries.firstOrNull { it.navItem.id == itemId } ?: AppTab.Home
-            },
+            FloatingDock(
+                items = dockItems,
+                activeTab = uiState.activeTab,
+                isDark = uiState.resolvedDarkTheme,
+                hazeState = hazeState,
+                detailMode = detailMode,
+                modifier = Modifier.fillMaxSize(),
+                onTabSelected = viewModel::selectTab,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun androidx.compose.animation.SharedTransitionScope.AppTabContent(
+    tab: AppTab,
+    uiState: com.example.shellshot.ui.MainUiState,
+    hazeState: dev.chrisbanes.haze.HazeState,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    onToggleMonitoring: (Boolean) -> Unit,
+    onOpenTemplates: () -> Unit,
+    onSelectTemplateAndOpen: (String) -> Unit,
+    onToggleThemeQuick: () -> Unit,
+    onRequestNotifications: () -> Unit,
+    onRequestMediaAccess: () -> Unit,
+    onOpenManageAllFilesSettings: () -> Unit,
+    onOpenBatteryOptimizationSettings: () -> Unit,
+    onUploadTemplateImage: () -> Unit,
+    viewModel: MainViewModel,
+) {
+    when (tab) {
+        AppTab.Home -> HomeTabScreen(
+            modifier = Modifier.fillMaxSize(),
+            uiState = uiState,
+            isDark = uiState.resolvedDarkTheme,
+            hazeState = hazeState,
+            onToggleThemeQuick = onToggleThemeQuick,
+            onToggleMonitoring = onToggleMonitoring,
+            onOpenTemplates = onOpenTemplates,
+            onSelectTemplateAndOpen = onSelectTemplateAndOpen,
+        )
+
+        AppTab.Templates -> TemplatesTabScreen(
+            modifier = Modifier.fillMaxSize(),
+            uiState = uiState,
+            isDark = uiState.resolvedDarkTheme,
+            hazeState = hazeState,
+            animatedVisibilityScope = animatedVisibilityScope,
+            sharedTransitionScope = this,
+            onUploadTemplateImage = onUploadTemplateImage,
+            onSelectTemplate = viewModel::selectTemplate,
+            onRequestDeleteTemplate = viewModel::requestDeleteTemplate,
+            onDismissDeleteTemplate = viewModel::dismissDeleteTemplate,
+            onConfirmDeleteTemplate = viewModel::deleteTemplate,
+            onOpenOverview = viewModel::openTemplateOverview,
+            onCloseOverview = viewModel::closeTemplateOverview,
+            onOpenOverviewDetail = viewModel::openTemplateOverviewDetail,
+            onCloseOverviewDetail = viewModel::closeTemplateOverviewDetail,
+            onSetCarouselAnchor = viewModel::setTemplateCarouselAnchor,
+            onUpdateImportName = viewModel::updateTemplateImportName,
+            onStartCornerDrag = viewModel::startCalibrationCornerDrag,
+            onUpdateCorner = viewModel::updateCalibrationCorner,
+            onFinishCornerDrag = viewModel::finishCalibrationCornerDrag,
+            onUpdateCornerRadius = viewModel::setCalibrationCornerRadius,
+            onResetCalibration = viewModel::resetCalibrationToAutoInit,
+            onConfirmImport = viewModel::confirmTemplateImport,
+            onCancelImport = viewModel::cancelTemplateImport,
+            onDismissImportAlert = viewModel::dismissTemplateImportAlert,
+            onAcknowledgeConfetti = viewModel::acknowledgeTemplateConfetti,
+        )
+
+        AppTab.Settings -> SettingsTabScreen(
+            modifier = Modifier.fillMaxSize(),
+            uiState = uiState,
+            isDark = uiState.resolvedDarkTheme,
+            hazeState = hazeState,
+            onRequestNotifications = onRequestNotifications,
+            onRequestMediaAccess = onRequestMediaAccess,
+            onOpenManageAllFilesSettings = onOpenManageAllFilesSettings,
+            onOpenBatteryOptimizationSettings = onOpenBatteryOptimizationSettings,
+            onRefreshScreenshotDirectories = viewModel::refreshScreenshotDirectoryRecommendations,
+            onToggleAutoDelete = viewModel::setAutoDeleteOriginal,
+            onToggleMediaStoreFallback = viewModel::setMediaStoreFallbackEnabled,
+            onToggleDebugMode = viewModel::setDebugModeEnabled,
+            onSetThemeOverride = viewModel::setThemeOverride,
+        )
+
+        AppTab.Logs -> LogsTabScreen(
+            modifier = Modifier.fillMaxSize(),
+            logs = uiState.logs,
+            isDark = uiState.resolvedDarkTheme,
+            hazeState = hazeState,
         )
     }
 }

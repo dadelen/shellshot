@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.shellshot.data.AppContainer
 import com.example.shellshot.data.OutputNamingStrategy
 import com.example.shellshot.data.PermissionSnapshot
+import com.example.shellshot.data.ThemeOverride
+import com.example.shellshot.template.CalibrationCornerId
 import com.example.shellshot.template.ShellTemplate
 import com.example.shellshot.template.TemplateImportDraft
 import kotlinx.coroutines.CancellationException
@@ -28,6 +30,15 @@ class MainViewModel(
     private val templateImportDraftState = MutableStateFlow<TemplateImportDraft?>(null)
     private val templateImportInProgressState = MutableStateFlow(false)
     private val templateImportAlertState = MutableStateFlow<TemplateImportAlert?>(null)
+    private val templateSelectingIdState = MutableStateFlow<String?>(null)
+    private val activeTabState = MutableStateFlow(AppTab.Home)
+    private val systemDarkThemeState = MutableStateFlow(false)
+    private val templateOverviewVisibleState = MutableStateFlow(false)
+    private val templateOverviewDetailIdState = MutableStateFlow<String?>(null)
+    private val templatePendingDeleteIdState = MutableStateFlow<String?>(null)
+    private val templateImportPreparingState = MutableStateFlow(false)
+    private val templateCarouselAnchorIdState = MutableStateFlow<String?>(null)
+    private val templateConfettiTokenState = MutableStateFlow(0L)
     private val recommendedDirectoriesState =
         MutableStateFlow(emptyList<com.example.shellshot.media.ScreenshotDirectoryRecommendation>())
     private val detectingDirectoriesState = MutableStateFlow(false)
@@ -59,6 +70,7 @@ class MainViewModel(
             templateImportDraft = templateImportDraft,
             lastProcessingResult = runtimeState.lastProcessingResult,
             logs = runtimeState.logs,
+            themeOverride = settings.themeOverride,
         )
     }.combine(deviceCaptureProfileState) { state, deviceCaptureProfile ->
         state.copy(currentDeviceCaptureProfile = deviceCaptureProfile)
@@ -70,6 +82,29 @@ class MainViewModel(
         state.copy(recommendedScreenshotDirectories = recommendedDirectories)
     }.combine(detectingDirectoriesState) { state, detectingDirectories ->
         state.copy(detectingScreenshotDirectories = detectingDirectories)
+    }.combine(templateSelectingIdState) { state, templateSelectingId ->
+        state.copy(templateSelectingId = templateSelectingId)
+    }.combine(activeTabState) { state, activeTab ->
+        state.copy(activeTab = activeTab)
+    }.combine(systemDarkThemeState) { state, systemDarkTheme ->
+        val resolvedDarkTheme = when (state.settings.themeOverride) {
+            ThemeOverride.System -> systemDarkTheme
+            ThemeOverride.Light -> false
+            ThemeOverride.Dark -> true
+        }
+        state.copy(resolvedDarkTheme = resolvedDarkTheme)
+    }.combine(templateOverviewVisibleState) { state, overviewVisible ->
+        state.copy(templateOverviewVisible = overviewVisible)
+    }.combine(templateOverviewDetailIdState) { state, detailId ->
+        state.copy(templateOverviewDetailId = detailId)
+    }.combine(templatePendingDeleteIdState) { state, deleteId ->
+        state.copy(templatePendingDeleteId = deleteId)
+    }.combine(templateImportPreparingState) { state, preparing ->
+        state.copy(templateImportPreparing = preparing)
+    }.combine(templateCarouselAnchorIdState) { state, anchorId ->
+        state.copy(templateCarouselAnchorId = anchorId)
+    }.combine(templateConfettiTokenState) { state, confettiToken ->
+        state.copy(templateConfettiToken = confettiToken)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -86,6 +121,61 @@ class MainViewModel(
         deviceCaptureProfileState.value = appContainer.templateRepository.currentDeviceCaptureProfile()
         refreshPermissionSnapshot()
         restoreMonitoringIfNeeded(context)
+    }
+
+    fun updateSystemDarkTheme(isDark: Boolean) {
+        systemDarkThemeState.value = isDark
+    }
+
+    fun selectTab(tab: AppTab) {
+        val allowLogs = tab != AppTab.Logs || uiState.value.settings.debugModeEnabled
+        activeTabState.value = if (allowLogs) tab else AppTab.Home
+    }
+
+    fun setThemeOverride(themeOverride: ThemeOverride) {
+        viewModelScope.launch {
+            appContainer.appPrefs.updateThemeOverride(themeOverride)
+        }
+    }
+
+    fun toggleThemeQuick() {
+        val next = if (uiState.value.resolvedDarkTheme) ThemeOverride.Light else ThemeOverride.Dark
+        setThemeOverride(next)
+    }
+
+    fun openTemplateOverview() {
+        templateOverviewVisibleState.value = true
+    }
+
+    fun closeTemplateOverview() {
+        templateOverviewDetailIdState.value = null
+        templateOverviewVisibleState.value = false
+    }
+
+    fun openTemplateOverviewDetail(id: String) {
+        templateOverviewDetailIdState.value = id
+    }
+
+    fun closeTemplateOverviewDetail() {
+        templateOverviewDetailIdState.value = null
+    }
+
+    fun requestDeleteTemplate(id: String) {
+        templatePendingDeleteIdState.value = id
+    }
+
+    fun dismissDeleteTemplate() {
+        templatePendingDeleteIdState.value = null
+    }
+
+    fun setTemplateCarouselAnchor(id: String?) {
+        templateCarouselAnchorIdState.value = id
+    }
+
+    fun acknowledgeTemplateConfetti(token: Long) {
+        if (templateConfettiTokenState.value == token) {
+            templateConfettiTokenState.value = 0L
+        }
     }
 
     fun startMonitoring(context: Context) {
@@ -110,7 +200,11 @@ class MainViewModel(
 
     fun selectTemplate(templateId: String) {
         viewModelScope.launch {
+            templateSelectingIdState.value = templateId
             appContainer.appPrefs.updateSelectedTemplate(templateId)
+            templateCarouselAnchorIdState.value = templateId
+            kotlinx.coroutines.delay(600)
+            templateSelectingIdState.value = null
         }
     }
 
@@ -126,6 +220,7 @@ class MainViewModel(
             ?: "我的模板"
 
         templateImportInProgressState.value = true
+        templateImportPreparingState.value = true
         viewModelScope.launch {
             try {
                 val draft = appContainer.templateRepository.prepareTemplateImportDraft(
@@ -152,6 +247,7 @@ class MainViewModel(
                 )
             } finally {
                 templateImportInProgressState.value = false
+                templateImportPreparingState.value = false
             }
         }
     }
@@ -161,40 +257,43 @@ class MainViewModel(
         templateImportDraftState.value = current.copy(templateName = name)
     }
 
-    fun updateTemplateCalibration(
-        centerX: Float,
-        centerY: Float,
-        width: Float,
-        cornerRadius: Float,
-    ) {
+    fun startCalibrationCornerDrag(cornerId: CalibrationCornerId, touchX: Float, touchY: Float) {
+        // 当前拖拽状态仅用于 UI，不持久化到草稿。该接口保留为后续手势遥测入口。
+    }
+
+    fun updateCalibrationCorner(cornerId: CalibrationCornerId, x: Float, y: Float) {
         val current = templateImportDraftState.value ?: return
-        val safeWidth = width.coerceIn(24f, current.outputWidth.toFloat())
-        val safeHeight = (safeWidth / current.overlayAspectRatio)
-            .coerceIn(24f, current.outputHeight.toFloat())
-        val clampedWidth = if (safeHeight * current.overlayAspectRatio != safeWidth) {
-            safeHeight * current.overlayAspectRatio
-        } else {
-            safeWidth
-        }
-        val halfW = clampedWidth / 2f
-        val halfH = safeHeight / 2f
         templateImportDraftState.value = current.copy(
-            overlayCenterX = centerX.coerceIn(halfW, current.outputWidth - halfW),
-            overlayCenterY = centerY.coerceIn(halfH, current.outputHeight - halfH),
-            overlayWidth = clampedWidth,
-            overlayHeight = safeHeight,
-            overlayCornerRadius = cornerRadius.coerceIn(0f, minOf(clampedWidth, safeHeight) / 2f),
+            corners = current.corners.map { corner ->
+                if (corner.id == cornerId) {
+                    corner.copy(
+                        x = x.coerceIn(0f, current.outputWidth.toFloat()),
+                        y = y.coerceIn(0f, current.outputHeight.toFloat()),
+                    )
+                } else {
+                    corner
+                }
+            }
         )
     }
 
-    fun resetTemplateCalibration() {
+    fun finishCalibrationCornerDrag() {
+        // 预留给将来的埋点/吸附统计，目前 UI 本地收口即可。
+    }
+
+    fun setCalibrationCornerRadius(value: Float) {
+        val current = templateImportDraftState.value ?: return
+        val fittedRect = current.fittedRect
+        templateImportDraftState.value = current.copy(
+            cornerRadiusPx = value.coerceIn(0f, minOf(fittedRect.width, fittedRect.height) / 2f),
+        )
+    }
+
+    fun resetCalibrationToAutoInit() {
         val current = templateImportDraftState.value ?: return
         templateImportDraftState.value = current.copy(
-            overlayCenterX = current.defaultOverlayCenterX,
-            overlayCenterY = current.defaultOverlayCenterY,
-            overlayWidth = current.defaultOverlayWidth,
-            overlayHeight = current.defaultOverlayHeight,
-            overlayCornerRadius = current.defaultOverlayCornerRadius,
+            corners = current.defaultCorners,
+            cornerRadiusPx = current.defaultCornerRadiusPx,
         )
     }
 
@@ -205,6 +304,7 @@ class MainViewModel(
 
     fun cancelTemplateImport() {
         templateImportDraftState.value = null
+        templateImportPreparingState.value = false
     }
 
     fun confirmTemplateImport() {
@@ -238,6 +338,8 @@ class MainViewModel(
                     templateImportAlertState.value = null
                     reloadTemplates(preferredTemplateId = result.templateId)
                     appContainer.appPrefs.updateSelectedTemplate(result.templateId)
+                    templateCarouselAnchorIdState.value = result.templateId
+                    templateConfettiTokenState.value = System.currentTimeMillis()
                 } else {
                     templateImportAlertState.value = TemplateImportAlert(
                         title = "模板生成失败",
@@ -252,9 +354,20 @@ class MainViewModel(
 
     fun deleteTemplate(templateId: String) {
         viewModelScope.launch {
+            val templatesBeforeDelete = templatesState.value
+            val deleteIndex = templatesBeforeDelete.indexOfFirst { it.id == templateId }.coerceAtLeast(0)
+            val wasSelected = uiState.value.selectedTemplate?.id == templateId
             val result = appContainer.templateRepository.deleteUserTemplate(templateId)
             if (result.success) {
+                dismissDeleteTemplate()
                 reloadTemplates()
+                val currentTemplates = appContainer.templateRepository.getTemplates()
+                val fallbackTemplateId = currentTemplates.getOrNull(deleteIndex.coerceAtMost(currentTemplates.lastIndex))?.id
+                    ?: currentTemplates.firstOrNull()?.id
+                if (wasSelected && fallbackTemplateId != null) {
+                    appContainer.appPrefs.updateSelectedTemplate(fallbackTemplateId)
+                    templateCarouselAnchorIdState.value = fallbackTemplateId
+                }
             }
         }
     }
@@ -268,6 +381,9 @@ class MainViewModel(
     fun setDebugModeEnabled(enabled: Boolean) {
         viewModelScope.launch {
             appContainer.appPrefs.updateDebugModeEnabled(enabled)
+            if (!enabled && activeTabState.value == AppTab.Logs) {
+                activeTabState.value = AppTab.Home
+            }
         }
     }
 

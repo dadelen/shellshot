@@ -467,29 +467,24 @@ class ShellComposer(
 
     private fun drawTemplateTopFeatureUnderlay(canvas: Canvas, geometry: ResolvedGeometry) {
         val feature = geometry.templateTopFeature ?: return
-        // 只给模板孔抗锯齿边缘补一个亚像素黑底，避免白边；不再做可见的大胶囊补丁。
-        val bleed = 0.75f * geometry.scaleToOutput
+        // 只给模板孔边缘补一个“几乎不可见”的黑底承接抗锯齿，目标是刚好吃掉白边，
+        // 而不是形成可见黑块。这里宁可略微保守，也不把 underlay 做大。
+        val bleed = (0.32f * geometry.scaleToOutput).coerceAtLeast(0.22f)
         val rect = RectF(
             feature.centerX - feature.width / 2f - bleed,
             feature.centerY - feature.height / 2f - bleed,
             feature.centerX + feature.width / 2f + bleed,
             feature.centerY + feature.height / 2f + bleed,
         )
-        val hardPaint = Paint(Paint.DITHER_FLAG).apply {
-            color = Color.BLACK
-            style = Paint.Style.FILL
-        }
-        val softPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
-            color = Color.BLACK
+        val underlayPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+            color = Color.argb(245, 0, 0, 0)
             style = Paint.Style.FILL
         }
         if (rect.width() / rect.height().coerceAtLeast(1f) < 1.5f) {
             val radius = maxOf(rect.width(), rect.height()) / 2f
-            canvas.drawCircle(rect.centerX(), rect.centerY(), radius, hardPaint)
-            canvas.drawCircle(rect.centerX(), rect.centerY(), radius, softPaint)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), radius, underlayPaint)
         } else {
-            canvas.drawRoundRect(rect, rect.height() / 2f, rect.height() / 2f, hardPaint)
-            canvas.drawRoundRect(rect, rect.height() / 2f, rect.height() / 2f, softPaint)
+            canvas.drawRoundRect(rect, rect.height() / 2f, rect.height() / 2f, underlayPaint)
         }
     }
 

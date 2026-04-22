@@ -5,10 +5,13 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.LruCache
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -17,15 +20,18 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.example.shellshot.ui.theme.shellShotTokens
+import com.example.shellshot.ui.theme.ShellColors
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,8 +46,8 @@ fun TemplatePreviewThumbnail(
     selected: Boolean = false,
 ) {
     val context = LocalContext.current
-    val colors = MaterialTheme.shellShotTokens.colors
     val density = LocalDensity.current
+    val isDark = MaterialTheme.colorScheme.background.red < 0.5f
     val targetWidthPx = with(density) { 160.dp.roundToPx() }
     val targetHeightPx = with(density) { 260.dp.roundToPx() }
     val cacheKey = remember(previewPath, targetWidthPx, targetHeightPx) {
@@ -65,27 +71,15 @@ fun TemplatePreviewThumbnail(
         }
     }
 
-    Box(
+    ProgressiveImageContainer(
+        bitmap = previewBitmap,
+        contentDescription = contentDescription,
         modifier = modifier,
-    ) {
-        if (previewBitmap != null) {
-            Image(
-                bitmap = previewBitmap!!,
-                contentDescription = contentDescription,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(imagePadding),
-                contentScale = ContentScale.Fit,
-            )
-        } else {
-            AppIcon(
-                icon = AppIconId.Template,
-                contentDescription = contentDescription,
-                modifier = Modifier.align(Alignment.Center),
-                tint = if (selected) colors.accentBlue else colors.textTertiary,
-            )
-        }
-    }
+        cornerRadius = cornerRadius,
+        imagePadding = imagePadding,
+        isDark = isDark,
+        selected = selected,
+    )
 }
 
 @Composable
@@ -97,8 +91,8 @@ fun TemplatePreviewThumbnail(
     imagePadding: Dp = 0.dp,
 ) {
     val context = LocalContext.current
-    val colors = MaterialTheme.shellShotTokens.colors
     val density = LocalDensity.current
+    val isDark = MaterialTheme.colorScheme.background.red < 0.5f
     val targetWidthPx = with(density) { 240.dp.roundToPx() }
     val targetHeightPx = with(density) { 360.dp.roundToPx() }
     val cacheKey = remember(previewUri, targetWidthPx, targetHeightPx) {
@@ -122,24 +116,61 @@ fun TemplatePreviewThumbnail(
         }
     }
 
-    Box(
+    ProgressiveImageContainer(
+        bitmap = previewBitmap,
+        contentDescription = contentDescription,
         modifier = modifier,
-    ) {
-        if (previewBitmap != null) {
+        cornerRadius = cornerRadius,
+        imagePadding = imagePadding,
+        isDark = isDark,
+        selected = false,
+    )
+}
+
+@Composable
+private fun ProgressiveImageContainer(
+    bitmap: ImageBitmap?,
+    contentDescription: String,
+    modifier: Modifier,
+    cornerRadius: Dp,
+    imagePadding: Dp,
+    isDark: Boolean,
+    selected: Boolean = false,
+) {
+    val imageAlpha by animateFloatAsState(
+        targetValue = if (bitmap != null) 1f else 0f,
+        animationSpec = tween(500),
+        label = "image-reveal"
+    )
+    val placeholderAlpha by animateFloatAsState(
+        targetValue = if (bitmap != null) 0f else 1f,
+        animationSpec = tween(300),
+        label = "placeholder-fade"
+    )
+
+    Box(modifier = modifier) {
+        if (bitmap != null) {
             Image(
-                bitmap = previewBitmap!!,
+                bitmap = bitmap,
                 contentDescription = contentDescription,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(imagePadding),
+                    .padding(imagePadding)
+                    .graphicsLayer { alpha = imageAlpha },
                 contentScale = ContentScale.Fit,
             )
-        } else {
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = placeholderAlpha },
+            contentAlignment = Alignment.Center,
+        ) {
             AppIcon(
                 icon = AppIconId.Template,
                 contentDescription = contentDescription,
-                modifier = Modifier.align(Alignment.Center),
-                tint = colors.textTertiary,
+                tint = if (selected) ShellColors.textSecondary(isDark) else ShellColors.textTertiary(isDark),
             )
         }
     }

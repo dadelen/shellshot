@@ -6,12 +6,20 @@ import com.example.shellshot.data.MediaAccessLevel
 import com.example.shellshot.data.MonitoringPhase
 import com.example.shellshot.data.PermissionSnapshot
 import com.example.shellshot.data.ProcessingResult
+import com.example.shellshot.data.ThemeOverride
 import com.example.shellshot.media.ScreenshotDirectoryRecommendation
 import com.example.shellshot.media.ScreenshotDirectories
 import com.example.shellshot.service.AutoShellMode
-import com.example.shellshot.template.ShellTemplate
 import com.example.shellshot.template.DeviceCaptureProfile
+import com.example.shellshot.template.ShellTemplate
 import com.example.shellshot.template.TemplateImportDraft
+
+enum class AppTab {
+    Home,
+    Templates,
+    Settings,
+    Logs,
+}
 
 data class TemplateImportAlert(
     val title: String,
@@ -47,9 +55,25 @@ data class MainUiState(
     val recommendedScreenshotDirectories: List<ScreenshotDirectoryRecommendation> = emptyList(),
     val detectingScreenshotDirectories: Boolean = false,
     val logs: List<LogEntry> = emptyList(),
+    val templateSelectingId: String? = null,
+    val activeTab: AppTab = AppTab.Home,
+    val themeOverride: ThemeOverride = ThemeOverride.System,
+    val resolvedDarkTheme: Boolean = false,
+    val templateOverviewVisible: Boolean = false,
+    val templateOverviewDetailId: String? = null,
+    val templatePendingDeleteId: String? = null,
+    val templateImportPreparing: Boolean = false,
+    val templateCarouselAnchorId: String? = null,
+    val templateConfettiToken: Long = 0L,
 ) {
     val selectedTemplate: ShellTemplate?
         get() = templates.firstOrNull { it.id == settings.selectedTemplateId } ?: templates.firstOrNull()
+
+    val overviewDetailTemplate: ShellTemplate?
+        get() = templates.firstOrNull { it.id == templateOverviewDetailId }
+
+    val pendingDeleteTemplate: ShellTemplate?
+        get() = templates.firstOrNull { it.id == templatePendingDeleteId }
 
     val hasCoreStartPermissions: Boolean
         get() = permissionSnapshot.notificationsGranted && permissionSnapshot.allFilesGranted

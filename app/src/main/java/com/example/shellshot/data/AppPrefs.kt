@@ -41,6 +41,18 @@ enum class OutputNamingStrategy {
     }
 }
 
+enum class ThemeOverride {
+    System,
+    Light,
+    Dark;
+
+    companion object {
+        fun fromRaw(value: String?): ThemeOverride {
+            return entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: System
+        }
+    }
+}
+
 data class AppSettings(
     val selectedTemplateId: String = "",
     val screenshotRelativePath: String = ScreenshotDirectories.DEFAULT_SCREENSHOT_RELATIVE_PATH,
@@ -51,6 +63,7 @@ data class AppSettings(
     val mediaStoreFallbackEnabled: Boolean = true,
     val batteryOptimizationEnabled: Boolean = false,
     val outputNamingStrategy: OutputNamingStrategy = OutputNamingStrategy.Prefix,
+    val themeOverride: ThemeOverride = ThemeOverride.System,
     val recentProcessedKeys: List<String> = emptyList(),
     val gamePackageRules: List<String> = defaultGamePackageRules,
 )
@@ -70,6 +83,7 @@ class AppPrefs(
             mediaStoreFallbackEnabled = preferences[Keys.MediaStoreFallbackEnabled] ?: true,
             batteryOptimizationEnabled = preferences[Keys.BatteryOptimizationEnabled] ?: false,
             outputNamingStrategy = OutputNamingStrategy.fromRaw(preferences[Keys.OutputNamingStrategy]),
+            themeOverride = ThemeOverride.fromRaw(preferences[Keys.ThemeOverride]),
             recentProcessedKeys = decodeProcessedKeys(preferences[Keys.RecentProcessedKeys]),
             gamePackageRules = decodeGamePackageRules(preferences[Keys.GamePackageRules]),
         )
@@ -129,6 +143,12 @@ class AppPrefs(
     suspend fun updateOutputNamingStrategy(strategy: OutputNamingStrategy) {
         context.dataStore.edit { preferences ->
             preferences[Keys.OutputNamingStrategy] = strategy.name
+        }
+    }
+
+    suspend fun updateThemeOverride(themeOverride: ThemeOverride) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.ThemeOverride] = themeOverride.name
         }
     }
 
@@ -219,6 +239,7 @@ class AppPrefs(
         val BatteryOptimizationEnabled: Preferences.Key<Boolean> =
             booleanPreferencesKey("battery_optimization_enabled")
         val OutputNamingStrategy: Preferences.Key<String> = stringPreferencesKey("output_naming_strategy")
+        val ThemeOverride: Preferences.Key<String> = stringPreferencesKey("theme_override")
         val RecentProcessedKeys: Preferences.Key<String> = stringPreferencesKey("recent_processed_keys")
         val GamePackageRules: Preferences.Key<String> = stringPreferencesKey("game_package_rules")
     }

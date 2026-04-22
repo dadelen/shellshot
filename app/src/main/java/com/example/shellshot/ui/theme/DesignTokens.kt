@@ -9,55 +9,28 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 @Immutable
-data class ShellShotColorTokens(
-    val backgroundPrimary: Color,
-    val backgroundSecondary: Color,
-    val cardBackground: Color,
-    val cardBackgroundStrong: Color,
-    val cardStroke: Color,
+data class ShellShotColors(
+    val background: Color,
+    val surface: Color,
+    val surfaceAlt: Color,
     val textPrimary: Color,
     val textSecondary: Color,
-    val textTertiary: Color,
+    val textMuted: Color,
     val accentBlue: Color,
-    val accentBlueSoft: Color,
     val accentGreen: Color,
-    val accentGreenSoft: Color,
     val accentAmber: Color,
-    val accentAmberSoft: Color,
+    val accentPurple: Color,
     val accentRed: Color,
-    val accentRedSoft: Color,
-    val dividerColor: Color,
-    val navBarBackground: Color,
-    val selectedItemBackground: Color,
+    val accentPink: Color,
+    val accentCyan: Color,
+    val glass: Color,
+    val glassStroke: Color,
+    val separator: Color,
+    val subtleFill: Color,
 )
 
 @Immutable
-data class ShellShotRadiusTokens(
-    val pageCard: Dp = 40.dp,
-    val secondaryCard: Dp = 24.dp,
-    val button: Dp = 20.dp,
-    val pill: Dp = 16.dp,
-    val iconPlate: Dp = 12.dp,
-    val navBar: Dp = 30.dp,
-    val navBarSelected: Dp = 22.dp,
-)
-
-@Immutable
-data class ShellShotShadowStyle(
-    val elevation: Dp,
-    val ambientColor: Color,
-    val spotColor: Color,
-)
-
-@Immutable
-data class ShellShotShadowTokens(
-    val soft: ShellShotShadowStyle,
-    val card: ShellShotShadowStyle,
-    val floating: ShellShotShadowStyle,
-)
-
-@Immutable
-data class ShellShotSpacingTokens(
+data class ShellShotSpacing(
     val xs: Dp = 4.dp,
     val sm: Dp = 8.dp,
     val md: Dp = 12.dp,
@@ -65,96 +38,81 @@ data class ShellShotSpacingTokens(
     val xl: Dp = 20.dp,
     val xxl: Dp = 24.dp,
     val xxxl: Dp = 32.dp,
-    val hero: Dp = 40.dp,
+    val pageHorizontal: Dp = 24.dp,
+)
+
+@Immutable
+data class ShellShotRadius(
+    val largeCard: Dp = 40.dp,
+    val mediumCard: Dp = 32.dp,
+    val pill: Dp = 999.dp,
+    val button: Dp = 16.dp,
+    val dock: Dp = 34.dp,
+)
+
+@Immutable
+data class ShellShotElevation(
+    val subtle: Dp = 4.dp,
+    val card: Dp = 14.dp,
+    val floating: Dp = 24.dp,
+)
+
+@Immutable
+data class MotionSpecTokens(
+    val pageDurationMs: Int = 400,
+    val quickDurationMs: Int = 150,
 )
 
 @Immutable
 data class ShellShotTokens(
-    val colors: ShellShotColorTokens,
-    val radii: ShellShotRadiusTokens = ShellShotRadiusTokens(),
-    val shadows: ShellShotShadowTokens,
-    val spacing: ShellShotSpacingTokens = ShellShotSpacingTokens(),
+    val colors: ShellShotColors,
+    val spacing: ShellShotSpacing = ShellShotSpacing(),
+    val radius: ShellShotRadius = ShellShotRadius(),
+    val elevation: ShellShotElevation = ShellShotElevation(),
+    val motion: MotionSpecTokens = MotionSpecTokens(),
 )
 
 val LightShellShotTokens = ShellShotTokens(
-    colors = ShellShotColorTokens(
-        backgroundPrimary = ShellColors.background(false),
-        backgroundSecondary = Color(0xFFDDE1E7),
-        cardBackground = ShellColors.baseCard(false),
-        cardBackgroundStrong = ShellColors.elevatedCard(false),
-        cardStroke = ShellColors.border(false),
-        textPrimary = ShellColors.textPrimary(false),
-        textSecondary = ShellColors.textSecondary(false),
-        textTertiary = ShellColors.textTertiary(false),
-        accentBlue = ShellColors.actionBg(false),
-        accentBlueSoft = ShellColors.badgeBg(false),
-        accentGreen = ShellColors.successGreen,
-        accentGreenSoft = ShellColors.successGreen.copy(alpha = 0.16f),
-        accentAmber = ShellColors.criticalOrange,
-        accentAmberSoft = ShellColors.criticalOrange.copy(alpha = 0.18f),
-        accentRed = ShellColors.criticalRed,
-        accentRedSoft = ShellColors.criticalRed.copy(alpha = 0.18f),
-        dividerColor = ShellColors.border(false),
-        navBarBackground = ShellColors.baseCard(false),
-        selectedItemBackground = ShellColors.badgeBg(false),
-    ),
-    shadows = ShellShotShadowTokens(
-        soft = ShellShotShadowStyle(
-            elevation = 2.dp,
-            ambientColor = Color.Black.copy(alpha = 0.05f),
-            spotColor = Color.Black.copy(alpha = 0.05f),
-        ),
-        card = ShellShotShadowStyle(
-            elevation = 5.dp,
-            ambientColor = Color.Black.copy(alpha = 0.05f),
-            spotColor = Color.Black.copy(alpha = 0.05f),
-        ),
-        floating = ShellShotShadowStyle(
-            elevation = 10.dp,
-            ambientColor = Color.Black.copy(alpha = 0.08f),
-            spotColor = Color.Black.copy(alpha = 0.08f),
-        ),
+    colors = ShellShotColors(
+        background = ShellColors.BackgroundLight,
+        surface = ShellColors.SurfaceLight,
+        surfaceAlt = ShellColors.SurfaceAltLight,
+        textPrimary = ShellColors.TextPrimaryLight,
+        textSecondary = ShellColors.TextSecondaryLight,
+        textMuted = ShellColors.TextMutedLight,
+        accentBlue = ShellColors.AccentBlue,
+        accentGreen = ShellColors.AccentGreen,
+        accentAmber = ShellColors.AccentAmber,
+        accentPurple = ShellColors.AccentPurple,
+        accentRed = ShellColors.AccentRed,
+        accentPink = ShellColors.AccentPink,
+        accentCyan = ShellColors.AccentCyan,
+        glass = ShellColors.GlassLight,
+        glassStroke = ShellColors.GlassStrokeLight,
+        separator = ShellColors.separator(false),
+        subtleFill = ShellColors.subtleFill(false),
     ),
 )
 
 val DarkShellShotTokens = ShellShotTokens(
-    colors = ShellShotColorTokens(
-        backgroundPrimary = ShellColors.background(true),
-        backgroundSecondary = ShellColors.background(true),
-        cardBackground = ShellColors.baseCard(true),
-        cardBackgroundStrong = ShellColors.elevatedCard(true),
-        cardStroke = ShellColors.border(true),
-        textPrimary = ShellColors.textPrimary(true),
-        textSecondary = ShellColors.textSecondary(true),
-        textTertiary = ShellColors.textTertiary(true),
-        accentBlue = ShellColors.actionBg(true),
-        accentBlueSoft = ShellColors.badgeBg(true),
-        accentGreen = ShellColors.successGreen,
-        accentGreenSoft = ShellColors.successGreen.copy(alpha = 0.16f),
-        accentAmber = ShellColors.criticalOrange,
-        accentAmberSoft = ShellColors.criticalOrange.copy(alpha = 0.18f),
-        accentRed = ShellColors.criticalRed,
-        accentRedSoft = ShellColors.criticalRed.copy(alpha = 0.18f),
-        dividerColor = ShellColors.border(true),
-        navBarBackground = ShellColors.baseCard(true),
-        selectedItemBackground = ShellColors.badgeBg(true),
-    ),
-    shadows = ShellShotShadowTokens(
-        soft = ShellShotShadowStyle(
-            elevation = 2.dp,
-            ambientColor = Color.Black.copy(alpha = 0.2f),
-            spotColor = Color.Black.copy(alpha = 0.4f),
-        ),
-        card = ShellShotShadowStyle(
-            elevation = 5.dp,
-            ambientColor = Color.Black.copy(alpha = 0.3f),
-            spotColor = Color.Black.copy(alpha = 0.5f),
-        ),
-        floating = ShellShotShadowStyle(
-            elevation = 10.dp,
-            ambientColor = Color.Black.copy(alpha = 0.4f),
-            spotColor = Color.Black.copy(alpha = 0.6f),
-        ),
+    colors = ShellShotColors(
+        background = ShellColors.BackgroundDark,
+        surface = ShellColors.SurfaceDark,
+        surfaceAlt = ShellColors.SurfaceAltDark,
+        textPrimary = ShellColors.TextPrimaryDark,
+        textSecondary = ShellColors.TextSecondaryDark,
+        textMuted = ShellColors.TextMutedDark,
+        accentBlue = ShellColors.AccentBlue,
+        accentGreen = ShellColors.AccentGreen,
+        accentAmber = ShellColors.AccentAmber,
+        accentPurple = ShellColors.AccentPurple,
+        accentRed = ShellColors.AccentRed,
+        accentPink = ShellColors.AccentPink,
+        accentCyan = ShellColors.AccentCyan,
+        glass = ShellColors.GlassDark,
+        glassStroke = ShellColors.GlassStrokeDark,
+        separator = ShellColors.separator(true),
+        subtleFill = ShellColors.subtleFill(true),
     ),
 )
 

@@ -33,6 +33,7 @@ class TemplateRepository(
         prettyPrint = true
     }
     private val templateImportPipeline = TemplateImportPipeline()
+    private val templateAssetSaver = TemplateAssetSaver(json)
     private val deviceCaptureProfileProvider = DeviceCaptureProfileProvider(context)
     private var cachedTemplates: List<ShellTemplate>? = null
 
@@ -86,29 +87,9 @@ class TemplateRepository(
                 imageUri = imageUri,
                 fileNameHint = templateNameOverride,
             )
-            val calibrationDraft = createDraftFromStagedPath(
+            createImportDraftFromStagedPath(
                 sourceImagePath = sourceFile.absolutePath,
                 templateNameOverride = templateNameOverride,
-            )
-            TemplateImportDraft(
-                sourceImagePath = sourceFile.absolutePath,
-                templateName = calibrationDraft.templateName,
-                validationWarning = calibrationDraft.detectionSummary.takeIf { it.contains("保底") || it.contains("未识别到") },
-                outputWidth = calibrationDraft.outputWidth,
-                outputHeight = calibrationDraft.outputHeight,
-                captureProfile = calibrationDraft.captureProfile,
-                detectedScreenRect = calibrationDraft.detectedScreenRect,
-                detectionSummary = calibrationDraft.detectionSummary,
-                overlayCenterX = calibrationDraft.overlayCenterX,
-                overlayCenterY = calibrationDraft.overlayCenterY,
-                overlayWidth = calibrationDraft.overlayWidth,
-                overlayHeight = calibrationDraft.overlayHeight,
-                overlayCornerRadius = calibrationDraft.overlayCornerRadius,
-                defaultOverlayCenterX = calibrationDraft.defaultOverlayCenterX,
-                defaultOverlayCenterY = calibrationDraft.defaultOverlayCenterY,
-                defaultOverlayWidth = calibrationDraft.defaultOverlayWidth,
-                defaultOverlayHeight = calibrationDraft.defaultOverlayHeight,
-                defaultOverlayCornerRadius = calibrationDraft.defaultOverlayCornerRadius,
             )
         }
     }
@@ -319,6 +300,7 @@ class TemplateRepository(
             originalFrame = frameBitmap,
         )
         val geometry = processedTemplate.geometryDerived
+        val topFeature = processedTemplate.topFeature?.toTopFeatureAnchor()
         val outputWidth = processedTemplate.frameBitmap.width
         val outputHeight = processedTemplate.frameBitmap.height
         val captureProfile = deviceCaptureProfileProvider.readProfile()
@@ -328,13 +310,14 @@ class TemplateRepository(
             outputHeight = outputHeight,
             aspectRatio = captureProfile.captureAspectRatio,
         )
+        val defaultTemplateName = nextDefaultTemplateName()
         if (!frameBitmap.isRecycled) frameBitmap.recycle()
         processedTemplate.recycle()
 
         return TemplateCalibrationDraft(
             sourceImagePath = sourceFile.absolutePath,
             templateName = templateNameOverride?.trim()?.takeIf { it.isNotBlank() }
-                ?: sourceFile.nameWithoutExtension.ifBlank { "我的模板" },
+                ?: defaultTemplateName,
             outputWidth = outputWidth,
             outputHeight = outputHeight,
             captureProfile = captureProfile,
@@ -345,7 +328,83 @@ class TemplateRepository(
             overlayWidth = overlay.width,
             overlayHeight = overlay.height,
             overlayCornerRadius = overlay.cornerRadius,
+            baseVisibleBounds = geometry.visibleBounds,
+            baseContentClipRect = geometry.contentClipRect,
+            baseSafeTopBand = geometry.safeTopBand,
+            baseTopSuppressionRect = geometry.topSuppressionRect,
+            baseTopHoleOverlayRect = geometry.topHoleOverlayRect,
+            baseTopFeatureAvoidRect = geometry.topFeatureAvoidRect,
+            baseTemplateTopFeature = topFeature,
         )
+    }
+
+    private fun createImportDraftFromStagedPath(
+        sourceImagePath: String,
+        templateNameOverride: String? = null,
+    ): TemplateImportDraft {
+        val sourceFile = File(sourceImagePath)
+        check(sourceFile.exists() && sourceFile.isFile) {
+            "选中的模板图片已失效，请重新上传"
+        }
+
+        val frameBitmap = decodeBitmapPath(sourceFile.absolutePath)
+        val processedTemplate = templateImportPipeline.processTemplate(
+            templateId = "draft",
+            templateName = templateNameOverride ?: sourceFile.nameWithoutExtension,
+            originalFrame = frameBitmap,
+        )
+        val geometry = processedTemplate.geometryDerived
+        val captureProfile = deviceCaptureProfileProvider.readProfile()
+        val autoInit = detectCalibrationAutoInit(
+            frameBitmap = frameBitmap,
+            fallbackBounds = geometry.visibleBounds,
+        )
+        val safeRect = autoInit.detectedBounds.normalizedWithin(frameBitmap.width, frameBitmap.height)
+        val cornerRadius = minOf(safeRect.width, safeRect.height) * 0.075f
+        val defaultTemplateName = nextDefaultTemplateName()
+        val templateName = templateNameOverride?.trim()?.takeIf { it.isNotBlank() }
+            ?: defaultTemplateName
+        val warning = if (autoInit.source == "fallback") {
+            "未识别到可靠透明区，已使用保底显示区域"
+        } else {
+            null
+        }
+        val result = TemplateImportDraft(
+            sourceImagePath = sourceFile.absolutePath,
+            templateName = templateName,
+            validationWarning = warning,
+            outputWidth = processedTemplate.frameBitmap.width,
+            outputHeight = processedTemplate.frameBitmap.height,
+            captureProfile = captureProfile,
+            detectedScreenRect = geometry.visibleBounds,
+            detectionSummary = "已自动初始化屏幕区域，可直接微调四角",
+            corners = autoInit.initialCorners,
+            defaultCorners = autoInit.initialCorners,
+            cornerRadiusPx = cornerRadius,
+            defaultCornerRadiusPx = cornerRadius,
+            autoInitSource = autoInit.source,
+            autoInitConfidence = autoInit.confidence,
+            baseVisibleBounds = geometry.visibleBounds,
+            baseContentClipRect = geometry.contentClipRect,
+            baseSafeTopBand = geometry.safeTopBand,
+            baseTopSuppressionRect = geometry.topSuppressionRect,
+            baseTopHoleOverlayRect = geometry.topHoleOverlayRect,
+            baseTopFeatureAvoidRect = geometry.topFeatureAvoidRect,
+            baseTemplateTopFeature = processedTemplate.topFeature?.toTopFeatureAnchor(),
+            overlayCenterX = safeRect.left + safeRect.width / 2f,
+            overlayCenterY = safeRect.top + safeRect.height / 2f,
+            overlayWidth = safeRect.width.toFloat(),
+            overlayHeight = safeRect.height.toFloat(),
+            overlayCornerRadius = cornerRadius,
+            defaultOverlayCenterX = safeRect.left + safeRect.width / 2f,
+            defaultOverlayCenterY = safeRect.top + safeRect.height / 2f,
+            defaultOverlayWidth = safeRect.width.toFloat(),
+            defaultOverlayHeight = safeRect.height.toFloat(),
+            defaultOverlayCornerRadius = cornerRadius,
+        )
+        if (!frameBitmap.isRecycled) frameBitmap.recycle()
+        processedTemplate.recycle()
+        return result
     }
 
     private fun persistDraft(draft: TemplateCalibrationDraft): TemplateImportResult {
@@ -492,28 +551,45 @@ class TemplateRepository(
     }
 
     private fun persistImportDraft(draft: TemplateImportDraft): TemplateImportResult {
-        return persistDraft(
-            TemplateCalibrationDraft(
-                sourceImagePath = draft.sourceImagePath,
+        check(File(draft.sourceImagePath).exists()) {
+            "选中的模板图片已失效，请重新上传"
+        }
+
+        val frameBitmap = decodeBitmapPath(draft.sourceImagePath)
+        val processedTemplate = runCatching {
+            templateImportPipeline.processTemplate(
+                templateId = "draft",
                 templateName = draft.templateName,
-                outputWidth = draft.outputWidth,
-                outputHeight = draft.outputHeight,
-                captureProfile = draft.captureProfile,
-                detectedScreenRect = draft.detectedScreenRect,
-                detectionSummary = draft.detectionSummary,
-                overlayCenterX = draft.overlayCenterX,
-                overlayCenterY = draft.overlayCenterY,
-                overlayWidth = draft.overlayWidth,
-                overlayHeight = draft.overlayHeight,
-                overlayCornerRadius = draft.overlayCornerRadius,
-                showGuides = draft.showGuides,
-                defaultOverlayCenterX = draft.defaultOverlayCenterX,
-                defaultOverlayCenterY = draft.defaultOverlayCenterY,
-                defaultOverlayWidth = draft.defaultOverlayWidth,
-                defaultOverlayHeight = draft.defaultOverlayHeight,
-                defaultOverlayCornerRadius = draft.defaultOverlayCornerRadius,
+                originalFrame = frameBitmap,
             )
-        )
+        }.onFailure { throwable ->
+            logger.e(TAG, "模板预处理流水线失败", throwable)
+        }.getOrThrow()
+
+        return try {
+            val geometry = TemplateCalibrationEngine.buildGeometry(draft, forSave = true)
+            val templateId = buildUserTemplateId()
+            val result = templateAssetSaver.save(
+                targetDirectory = File(userTemplatesRoot(), templateId),
+                configFileName = USER_TEMPLATE_CONFIG_NAME,
+                templateId = templateId,
+                draft = draft,
+                importedTemplate = processedTemplate,
+                geometry = geometry,
+            )
+            logger.d(
+                TAG,
+                "模板微调导入完成 id=$templateId name=${draft.templateName} " +
+                    "rect=${geometry.screenRect.left},${geometry.screenRect.top},${geometry.screenRect.right},${geometry.screenRect.bottom} " +
+                    "cornerRadius=${draft.cornerRadiusPx} autoInit=${draft.autoInitSource}",
+            )
+            result
+        } finally {
+            if (!frameBitmap.isRecycled) {
+                frameBitmap.recycle()
+            }
+            processedTemplate.recycle()
+        }
     }
 
     fun currentDeviceCaptureProfile(): DeviceCaptureProfile {
@@ -964,9 +1040,124 @@ class TemplateRepository(
             ?: "source"
     }
 
+    private fun detectCalibrationAutoInit(
+        frameBitmap: Bitmap,
+        fallbackBounds: ScreenRect,
+    ): CalibrationAutoInitResult {
+        val width = frameBitmap.width
+        val height = frameBitmap.height
+        val pixels = IntArray(width * height)
+        frameBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val visited = BooleanArray(width * height)
+        val centerX = width / 2f
+        val centerY = height / 2f
+        var best: TransparentComponent? = null
+        val queue = ArrayDeque<Int>()
+
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val index = y * width + x
+                if (visited[index] || Color.alpha(pixels[index]) > 4) continue
+                visited[index] = true
+                queue.add(index)
+
+                var minX = x
+                var maxX = x
+                var minY = y
+                var maxY = y
+                var area = 0
+                while (queue.isNotEmpty()) {
+                    val current = queue.removeFirst()
+                    val px = current % width
+                    val py = current / width
+                    area += 1
+                    if (px < minX) minX = px
+                    if (px > maxX) maxX = px
+                    if (py < minY) minY = py
+                    if (py > maxY) maxY = py
+                    val neighbors = intArrayOf(current - 1, current + 1, current - width, current + width)
+                    for (next in neighbors) {
+                        if (next < 0 || next >= pixels.size || visited[next]) continue
+                        val nx = next % width
+                        val ny = next / width
+                        if (kotlin.math.abs(nx - px) + kotlin.math.abs(ny - py) != 1) continue
+                        if (Color.alpha(pixels[next]) <= 4) {
+                            visited[next] = true
+                            queue.add(next)
+                        }
+                    }
+                }
+
+                val component = TransparentComponent(
+                    minX = minX,
+                    minY = minY,
+                    maxX = maxX,
+                    maxY = maxY,
+                    area = area,
+                    maskPixels = IntArray(0),
+                )
+                val bounds = ScreenRect(minX, minY, maxX + 1, maxY + 1)
+                val areaRatio = area / (width * height).toFloat()
+                val centerDistance = kotlin.math.hypot(bounds.left + bounds.width / 2f - centerX, bounds.top + bounds.height / 2f - centerY)
+                val score = areaRatio * 1000f - centerDistance * 0.15f
+                val bestScore = best?.let {
+                    val bestBounds = ScreenRect(it.minX, it.minY, it.maxX + 1, it.maxY + 1)
+                    val bestRatio = it.area / (width * height).toFloat()
+                    val bestDistance = kotlin.math.hypot(bestBounds.left + bestBounds.width / 2f - centerX, bestBounds.top + bestBounds.height / 2f - centerY)
+                    bestRatio * 1000f - bestDistance * 0.15f
+                } ?: Float.NEGATIVE_INFINITY
+                if (bounds.width > width * 0.18f && bounds.height > height * 0.18f && score > bestScore) {
+                    best = component
+                }
+            }
+        }
+
+        val chosenBounds = best?.let { ScreenRect(it.minX, it.minY, it.maxX + 1, it.maxY + 1) }
+        return if (chosenBounds != null) {
+            CalibrationAutoInitResult(
+                initialCorners = defaultCornersFor(chosenBounds),
+                detectedBounds = chosenBounds,
+                confidence = (best!!.area / (width * height).toFloat()).coerceIn(0f, 1f),
+                source = "transparent-region",
+            )
+        } else {
+            CalibrationAutoInitResult(
+                initialCorners = defaultCornersFor(fallbackBounds),
+                detectedBounds = fallbackBounds,
+                confidence = 0.72f,
+                source = "screen-mask",
+            )
+        }
+    }
+
     private fun draftsRoot(): File = File(context.filesDir, "template_calibration")
 
     private fun userTemplatesRoot(): File = File(context.filesDir, USER_TEMPLATE_ROOT)
+
+    private fun nextDefaultTemplateName(): String {
+        val regex = Regex("^模板(\\d+)$")
+        val userNames = userTemplatesRoot()
+            .takeIf { it.exists() }
+            ?.listFiles()
+            ?.filter { it.isDirectory }
+            ?.mapNotNull { directory ->
+                val configFile = File(directory, USER_TEMPLATE_CONFIG_NAME)
+                if (!configFile.exists()) return@mapNotNull null
+                runCatching {
+                    json.decodeFromString<TemplateConfig>(configFile.readText()).name
+                }.getOrNull()
+            }
+            .orEmpty()
+
+        val nextIndex = userNames
+            .mapNotNull { name -> regex.matchEntire(name.trim())?.groupValues?.getOrNull(1)?.toIntOrNull() }
+            .maxOrNull()
+            ?.plus(1)
+            ?: (userNames.size + 1).coerceAtLeast(1)
+
+        return "模板$nextIndex"
+    }
 
     private fun buildUserTemplateId(): String {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.getDefault()).format(Date())

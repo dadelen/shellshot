@@ -1,6 +1,5 @@
 package com.example.shellshot.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -12,51 +11,52 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 private val LightColors = lightColorScheme(
-    primary = ShellColors.actionBg(false),
-    onPrimary = ShellColors.actionText(false),
-    secondary = ShellColors.actionBg(false),
-    onSecondary = ShellColors.actionText(false),
-    tertiary = ShellColors.actionBg(false),
-    background = ShellColors.background(false),
-    surface = ShellColors.elevatedCard(false),
-    surfaceVariant = ShellColors.baseCard(false),
-    primaryContainer = ShellColors.badgeBg(false),
-    secondaryContainer = ShellColors.badgeBg(false),
-    error = ShellColors.criticalRed,
-    onBackground = ShellColors.textPrimary(false),
-    onSurface = ShellColors.textPrimary(false),
-    onSurfaceVariant = ShellColors.textSecondary(false),
+    primary = ShellColors.AccentBlue,
+    onPrimary = Color.White,
+    secondary = ShellColors.AccentBlue,
+    onSecondary = Color.White,
+    tertiary = ShellColors.AccentPurple,
+    background = ShellColors.BackgroundLight,
+    surface = ShellColors.SurfaceLight,
+    surfaceVariant = ShellColors.SurfaceAltLight,
+    primaryContainer = ShellColors.subtleFill(false),
+    secondaryContainer = ShellColors.subtleFill(false),
+    error = ShellColors.AccentRed,
+    onBackground = ShellColors.TextPrimaryLight,
+    onSurface = ShellColors.TextPrimaryLight,
+    onSurfaceVariant = ShellColors.TextMutedLight,
 )
 
 private val DarkColors = darkColorScheme(
-    primary = ShellColors.actionBg(true),
-    onPrimary = ShellColors.actionText(true),
-    secondary = ShellColors.actionBg(true),
-    onSecondary = ShellColors.actionText(true),
-    tertiary = ShellColors.actionBg(true),
-    background = ShellColors.background(true),
-    surface = ShellColors.elevatedCard(true),
-    surfaceVariant = ShellColors.baseCard(true),
-    primaryContainer = ShellColors.badgeBg(true),
-    secondaryContainer = ShellColors.badgeBg(true),
-    error = ShellColors.criticalRed,
-    onBackground = ShellColors.textPrimary(true),
-    onSurface = ShellColors.textPrimary(true),
-    onSurfaceVariant = ShellColors.textSecondary(true),
+    primary = ShellColors.AccentBlue,
+    onPrimary = Color.White,
+    secondary = ShellColors.AccentBlue,
+    onSecondary = Color.White,
+    tertiary = ShellColors.AccentPurple,
+    background = ShellColors.BackgroundDark,
+    surface = ShellColors.SurfaceDark,
+    surfaceVariant = ShellColors.SurfaceAltDark,
+    primaryContainer = ShellColors.subtleFill(true),
+    secondaryContainer = ShellColors.subtleFill(true),
+    error = ShellColors.AccentRed,
+    onBackground = ShellColors.TextPrimaryDark,
+    onSurface = ShellColors.TextPrimaryDark,
+    onSurfaceVariant = ShellColors.TextMutedDark,
 )
 
 private val AppShapes = Shapes(
-    small = RoundedCornerShape(20.dp),
-    medium = RoundedCornerShape(22.dp),
-    large = RoundedCornerShape(28.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(24.dp),
 )
 
 @Composable
 fun ShellShotTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean,
     content: @Composable () -> Unit,
 ) {
     val tokens = if (darkTheme) DarkShellShotTokens else LightShellShotTokens

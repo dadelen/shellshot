@@ -58,7 +58,7 @@ kotlin {
 }
 
 dependencies {
-    def composeBom = platform('androidx.compose:compose-bom:2024.09.03')
+    def composeBom = platform('androidx.compose:compose-bom:2024.09.00')
 
     implementation composeBom
     androidTestImplementation composeBom
@@ -77,12 +77,14 @@ dependencies {
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.animation:animation'
     implementation 'androidx.compose.material3:material3'
     implementation 'androidx.compose.material:material-icons-extended'
     implementation 'com.airbnb.android:lottie-compose:6.4.0'
+    implementation 'dev.chrisbanes.haze:haze:1.6.10'
+    implementation 'nl.dionsegijn:konfetti-compose:2.0.5'
     implementation 'io.github.kyant0:backdrop:1.0.6'
     implementation 'io.github.kyant0:shapes:1.2.0'
-    implementation 'androidx.compose.ui:ui-text-google-fonts:1.6.0'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
