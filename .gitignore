@@ -33,7 +33,7 @@ PowerShell 7.6.0/
 # Reverse-engineering and reference bundles
 .tools/
 zip/
-UI/
+/UI/
 
 # Android generated artifacts
 captures/
