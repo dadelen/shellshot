@@ -137,7 +137,6 @@ fun SettingsTabScreen(
                     ) {
                         if (uiState.recommendedScreenshotDirectories.isEmpty()) {
                             Text("暂无推荐目录", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                            Text("先截几张图后再刷新。", fontSize = 14.sp, color = colors.textSecondary)
                         } else {
                             uiState.recommendedScreenshotDirectories.take(3).forEach { recommendation ->
                                 Text(recommendation.relativePath, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
@@ -158,6 +157,19 @@ fun SettingsTabScreen(
                     label = "通知权限",
                     value = if (uiState.permissionSnapshot.notificationsGranted) "已开启" else "去开启",
                     onClick = onRequestNotifications,
+                )
+                SettingsDivider(isDark)
+                SettingsRow(
+                    icon = AppIconId.Settings,
+                    tint = ShellColors.AccentBlue,
+                    background = ShellColors.AccentBlue.copy(alpha = if (isDark) 0.18f else 0.12f),
+                    label = "主题策略",
+                    value = when (uiState.themeOverride) {
+                        ThemeOverride.System -> "跟随系统"
+                        ThemeOverride.Light -> "浅色"
+                        ThemeOverride.Dark -> "深色"
+                    },
+                    onClick = { showThemePicker = true },
                 )
                 SettingsDivider(isDark)
                 SettingsRow(
@@ -216,23 +228,6 @@ fun SettingsTabScreen(
                     label = "调试模式",
                     checked = uiState.settings.debugModeEnabled,
                     onToggle = onToggleDebugMode,
-                )
-            }
-        }
-
-        StaggeredReveal(4) {
-            SettingsGroupCard(isDark = isDark) {
-                SettingsRow(
-                    icon = AppIconId.Settings,
-                    tint = ShellColors.AccentBlue,
-                    background = ShellColors.AccentBlue.copy(alpha = if (isDark) 0.18f else 0.12f),
-                    label = "主题策略",
-                    value = when (uiState.themeOverride) {
-                        ThemeOverride.System -> "跟随系统"
-                        ThemeOverride.Light -> "浅色"
-                        ThemeOverride.Dark -> "深色"
-                    },
-                    onClick = { showThemePicker = true },
                 )
             }
         }

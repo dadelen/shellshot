@@ -219,6 +219,7 @@ fun LiquidGlassSwitch(
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberShellShotHaptics()
     var isAnimating by remember { mutableStateOf(false) }
     LaunchedEffect(isOn) {
         isAnimating = true
@@ -271,7 +272,9 @@ fun LiquidGlassSwitch(
             )
             .padding(3.dp)
             .noRippleClick {
-                onToggle(!isOn)
+                val next = !isOn
+                haptics.toggle(next)
+                onToggle(next)
             },
     ) {
         Box(

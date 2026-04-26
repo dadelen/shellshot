@@ -474,7 +474,7 @@ class TemplateRepository(
 
             val config = TemplateConfig(
                 id = templateId,
-                name = draft.templateName.ifBlank { "我的模板" },
+                name = draft.templateName.ifBlank { "模板 1" },
                 templateVersion = ShellTemplate.CURRENT_TEMPLATE_VERSION,
                 frameAsset = frameFile.absolutePath,
                 frameBaseAsset = frameBaseFile.absolutePath,

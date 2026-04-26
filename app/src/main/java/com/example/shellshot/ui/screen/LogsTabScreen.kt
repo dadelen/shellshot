@@ -1,10 +1,5 @@
 package com.example.shellshot.ui.screen
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,13 +14,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -40,6 +37,7 @@ import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.CountCapsule
 import com.example.shellshot.ui.components.GlassSurfaceCard
+import com.example.shellshot.ui.components.StaggeredReveal
 import com.example.shellshot.ui.theme.shellShotTokens
 import com.example.shellshot.utils.TimeUtils
 import dev.chrisbanes.haze.HazeState
@@ -58,6 +56,13 @@ fun LogsTabScreen(
             .sortedByDescending { it.timestampMillis }
             .take(60)
     }
+    val revealedLogKeys = remember { mutableStateListOf<String>() }
+
+    LaunchedEffect(visibleLogs) {
+        val visibleKeys = visibleLogs.map { log -> "${log.timestampMillis}-${log.tag}-${log.message}" }.toSet()
+        revealedLogKeys.removeAll { it !in visibleKeys }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -79,25 +84,59 @@ fun LogsTabScreen(
             contentPadding = PaddingValues(bottom = 144.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            items(
+            itemsIndexed(
                 items = visibleLogs,
-                key = { "${it.timestampMillis}-${it.tag}-${it.message}" },
-            ) { log ->
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 5 }),
-                    exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 6 }),
-                ) {
-                    LogCard(
+                key = { _, log -> "${log.timestampMillis}-${log.tag}-${log.message}" },
+            ) { index, log ->
+                val logKey = "${log.timestampMillis}-${log.tag}-${log.message}"
+                Box(modifier = Modifier.animateItem()) {
+                    LogRevealCard(
                         log = log,
+                        logKey = logKey,
                         isDark = isDark,
-                        modifier = Modifier
-                            .animateItem()
-                            .blur(0.dp),
+                        revealIndex = index.coerceAtMost(10),
+                        hasRevealed = logKey in revealedLogKeys,
+                        onRevealFinished = {
+                            if (logKey !in revealedLogKeys) {
+                                revealedLogKeys.add(logKey)
+                            }
+                        },
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LogRevealCard(
+    log: LogEntry,
+    logKey: String,
+    isDark: Boolean,
+    revealIndex: Int,
+    hasRevealed: Boolean,
+    onRevealFinished: () -> Unit,
+) {
+    if (hasRevealed) {
+        LogCard(
+            log = log,
+            isDark = isDark,
+            modifier = Modifier.blur(0.dp),
+        )
+        return
+    }
+
+    StaggeredReveal(index = revealIndex) {
+        LogCard(
+            log = log,
+            isDark = isDark,
+            modifier = Modifier.blur(0.dp),
+        )
+    }
+
+    LaunchedEffect(logKey) {
+        kotlinx.coroutines.delay(revealIndex * 80L + 460L)
+        onRevealFinished()
     }
 }
 

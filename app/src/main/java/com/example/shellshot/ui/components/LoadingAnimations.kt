@@ -19,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -35,25 +34,16 @@ fun PremiumLoadingAnimation(
     message: String = "正在处理中...",
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "premium-loading")
+    val colors = MaterialTheme.colorScheme
 
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
+            animation = tween(900, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "rotation"
-    )
-
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse"
     )
 
     Column(
@@ -61,51 +51,43 @@ fun PremiumLoadingAnimation(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
-            modifier = Modifier.size(72.dp),
+            modifier = Modifier.size(52.dp),
             contentAlignment = Alignment.Center
         ) {
-            Canvas(modifier = Modifier.fillMaxSize().graphicsLayer {
-                scaleX = pulseScale
-                scaleY = pulseScale
-                alpha = 0.25f
-            }) {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            ShellColors.AccentBlue.copy(alpha = 0.35f),
-                            Color.Transparent
-                        )
-                    )
-                )
-            }
-
-            Canvas(modifier = Modifier.size(44.dp).graphicsLayer {
-                rotationZ = rotation
-            }) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { rotationZ = rotation }
+            ) {
                 drawArc(
-                    brush = Brush.sweepGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            ShellColors.AccentBlue.copy(alpha = 0.08f),
-                            ShellColors.AccentBlue
-                        )
-                    ),
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.12f)
+                    } else {
+                        Color(0xFFD2D6DE)
+                    },
                     startAngle = 0f,
-                    sweepAngle = 280f,
+                    sweepAngle = 360f,
                     useCenter = false,
-                    style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
+                    style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+                )
+                drawArc(
+                    color = ShellColors.AccentBlue,
+                    startAngle = -90f,
+                    sweepAngle = 96f,
+                    useCenter = false,
+                    style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         Text(
             text = message,
             style = MaterialTheme.typography.bodyMedium.copy(
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
             ),
-            color = ShellColors.textSecondary(isDark),
+            color = if (isDark) colors.onSurface else ShellColors.textPrimary(isDark),
         )
     }
 }

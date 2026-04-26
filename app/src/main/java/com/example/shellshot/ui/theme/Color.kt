@@ -3,8 +3,8 @@ package com.example.shellshot.ui.theme
 import androidx.compose.ui.graphics.Color
 
 object ShellColors {
-    val BackgroundLight = Color(0xFFEBEDF0)
-    val BackgroundDark = Color(0xFF000000)
+    val BackgroundLight = Color(0xFFF5F4F1)
+    val BackgroundDark = Color(0xFF0A0A0C)
     val SurfaceLight = Color(0xFFFFFFFF)
     val SurfaceDark = Color(0xFF1C1C1E)
     val SurfaceAltLight = Color(0xFFF2F2F7)

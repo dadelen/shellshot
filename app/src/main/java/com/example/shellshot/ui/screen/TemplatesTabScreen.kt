@@ -3,18 +3,31 @@ package com.example.shellshot.ui.screen
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -38,16 +51,25 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
+
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +86,7 @@ import com.example.shellshot.ui.components.IconPlate
 import com.example.shellshot.ui.components.StaggeredReveal
 import com.example.shellshot.ui.components.TemplatePreviewThumbnail
 import com.example.shellshot.ui.components.noRippleClick
+import com.example.shellshot.ui.components.rememberShellShotHaptics
 import com.example.shellshot.ui.theme.ShellColors
 import com.example.shellshot.ui.theme.shellShotTokens
 import dev.chrisbanes.haze.HazeState
@@ -75,7 +98,9 @@ import nl.dionsegijn.konfetti.core.emitter.Emitter
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlin.math.sign
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -112,6 +137,14 @@ fun TemplatesTabScreen(
     val animatable = remember { Animatable(0f) }
     val colors = MaterialTheme.shellShotTokens.colors
     val carouselScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val haptics = rememberShellShotHaptics()
+    var dragAccumulator by remember { mutableStateOf(0f) }
+    var dragStartIndex by remember { mutableStateOf(0) }
+    var dragVelocityHint by remember { mutableStateOf(0f) }
+    var exitingTemplates by remember { mutableStateOf(emptyMap<String, ShellTemplate>()) }
+    var retainedOverviewDetailTemplate by remember { mutableStateOf<ShellTemplate?>(null) }
+    var overviewDetailVisible by remember { mutableStateOf(false) }
 
     fun dataIndexFor(virtualIndex: Int): Int {
         val size = templates.size
@@ -141,20 +174,43 @@ fun TemplatesTabScreen(
         if (targetIndex >= 0) {
             animatable.animateTo(
                 targetValue = nearestVirtualIndex(targetIndex, animatable.value, templates.size),
-                animationSpec = spring(stiffness = 300f, dampingRatio = 0.8f),
+                animationSpec = spring(stiffness = 250f, dampingRatio = 0.65f),
             )
         }
         onSetCarouselAnchor(null)
     }
 
+    LaunchedEffect(uiState.overviewDetailTemplate?.id, templates.map { it.id }) {
+        val incoming = uiState.overviewDetailTemplate
+        if (incoming != null) {
+            retainedOverviewDetailTemplate = incoming
+            overviewDetailVisible = true
+        } else if (retainedOverviewDetailTemplate != null) {
+            overviewDetailVisible = false
+            kotlinx.coroutines.delay(260)
+            if (!overviewDetailVisible) {
+                retainedOverviewDetailTemplate = null
+            }
+        }
+    }
+
+    LaunchedEffect(uiState.templateConfettiToken) {
+        if (uiState.templateConfettiToken != 0L) {
+            haptics.selection()
+        }
+    }
+
     Box(
         modifier = modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(top = 14.dp),
+            .fillMaxSize(),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(top = 8.dp),
+        ) {
             StaggeredReveal(index = 0) {
                 TemplatesHeader(
                     count = templates.size,
@@ -174,22 +230,47 @@ fun TemplatesTabScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .offset(y = (-24).dp)
                         .pointerInput(templates.map { it.id }) {
                             detectHorizontalDragGestures(
+                                onDragStart = {
+                                    dragAccumulator = 0f
+                                    dragVelocityHint = 0f
+                                    dragStartIndex = animatable.value.roundToInt()
+                                },
                                 onHorizontalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    if (templates.isNotEmpty() && abs(animatable.value - animatable.value.roundToInt()) < 0.55f) {
+                                    if (templates.isNotEmpty()) {
+                                        change.consume()
+                                        val dragAmountDp = with(density) { dragAmount.toDp().value }
+                                        dragAccumulator += dragAmountDp
+                                        dragVelocityHint = dragAmountDp
+                                        // Keep the prototype trajectory, with only a slight extra damping.
+                                        val base = dragStartIndex.toFloat()
+                                        val elasticDeviation = (-(dragAccumulator) / 125f) * 0.22f
                                         carouselScope.launch {
-                                            animatable.snapTo(animatable.value - dragAmount / 180f)
+                                            animatable.snapTo(base + elasticDeviation)
                                         }
                                     }
                                 },
                                 onDragEnd = {
                                     carouselScope.launch {
+                                        val projectedDrag = dragAccumulator + (dragVelocityHint * 8f)
+                                        val threshold = 40f
+                                        val offset = if (projectedDrag < -threshold) 1
+                                                     else if (projectedDrag > threshold) -1
+                                                     else 0
+                                        val target = dragStartIndex + offset
                                         animatable.animateTo(
-                                            targetValue = animatable.value.roundToInt().toFloat(),
-                                            animationSpec = spring(stiffness = 300f, dampingRatio = 0.8f),
+                                            targetValue = target.toFloat(),
+                                            animationSpec = spring(
+                                                stiffness = 250f,
+                                                dampingRatio = 0.65f,
+                                            ),
                                         )
+                                        if (offset != 0) {
+                                            delay(70)
+                                            haptics.selection()
+                                        }
                                     }
                                 },
                             )
@@ -199,12 +280,16 @@ fun TemplatesTabScreen(
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .width(240.dp)
-                            .height(440.dp)
-                            .blur(80.dp)
+                            .width(388.dp)
+                            .height(592.dp)
                             .background(
-                                ShellColors.AccentBlue.copy(alpha = if (isDark) 0.08f else 0.12f),
-                                RoundedCornerShape(56.dp),
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        ShellColors.AccentBlue.copy(alpha = if (isDark) 0.16f else 0.24f),
+                                        Color.White.copy(alpha = if (isDark) 0.04f else 0.10f),
+                                        Color.Transparent,
+                                    )
+                                )
                             ),
                     )
                     val baseIndex = animatable.value.roundToInt()
@@ -217,16 +302,35 @@ fun TemplatesTabScreen(
                             selected = template.id == selectedTemplateId,
                             relativeOffset = relativeOffset,
                             isDark = isDark,
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .zIndex(50f - abs(relativeOffset)),
                             onClick = {
-                                if (abs(relativeOffset) < 0.1f) return@TemplateCarouselCard
-                                if (abs(relativeOffset) < 1.1f) {
+                                val stepDistance = abs(relativeOffset.roundToInt())
+                                if (stepDistance == 1) {
                                     onSetCarouselAnchor(template.id)
+                                    carouselScope.launch {
+                                        delay(70)
+                                        haptics.selection()
+                                    }
                                 }
                             },
                             onApply = { onSelectTemplate(template.id) },
                             onDelete = { onRequestDeleteTemplate(template.id) },
                         )
+                    }
+                    // Exit animation overlay for deleted templates
+                    exitingTemplates.forEach { (id, template) ->
+                        androidx.compose.runtime.key("exit-$id") {
+                            ExitingTemplateGhost(
+                                template = template,
+                                isDark = isDark,
+                                modifier = Modifier.align(Alignment.Center).zIndex(100f),
+                                onFinished = {
+                                    exitingTemplates = exitingTemplates - id
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -248,9 +352,10 @@ fun TemplatesTabScreen(
             )
         }
 
-        uiState.overviewDetailTemplate?.let { template ->
+        retainedOverviewDetailTemplate?.let { template ->
             OverviewDetailDialog(
                 template = template,
+                visible = overviewDetailVisible,
                 isDark = isDark,
                 animatedVisibilityScope = animatedVisibilityScope,
                 sharedTransitionScope = sharedTransitionScope,
@@ -268,7 +373,14 @@ fun TemplatesTabScreen(
             DeleteTemplateDialog(
                 templateName = template.name,
                 isDark = isDark,
-                onConfirm = { onConfirmDeleteTemplate(template.id) },
+                onConfirm = {
+                    exitingTemplates = exitingTemplates + (template.id to template)
+                    onDismissDeleteTemplate()
+                    carouselScope.launch {
+                        kotlinx.coroutines.delay(340)
+                        onConfirmDeleteTemplate(template.id)
+                    }
+                },
                 onDismiss = onDismissDeleteTemplate,
             )
         }
@@ -291,20 +403,34 @@ fun TemplatesTabScreen(
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
         ) {
-            uiState.templateImportDraft?.let { draft ->
-                TemplateCalibrationPage(
-                    draft = draft,
-                    inProgress = uiState.templateImportInProgress,
-                    isDark = isDark,
-                    onUpdateName = onUpdateImportName,
-                    onStartCornerDrag = onStartCornerDrag,
-                    onUpdateCorner = onUpdateCorner,
-                    onFinishCornerDrag = onFinishCornerDrag,
-                    onUpdateCornerRadius = onUpdateCornerRadius,
-                    onReset = onResetCalibration,
-                    onConfirm = onConfirmImport,
-                    onDismiss = onCancelImport,
+            Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    event.changes.forEach { it.consume() }
+                                }
+                            }
+                        }
                 )
+                uiState.templateImportDraft?.let { draft ->
+                    TemplateCalibrationPage(
+                        draft = draft,
+                        inProgress = uiState.templateImportInProgress,
+                        isDark = isDark,
+                        onUpdateName = onUpdateImportName,
+                        onStartCornerDrag = onStartCornerDrag,
+                        onUpdateCorner = onUpdateCorner,
+                        onFinishCornerDrag = onFinishCornerDrag,
+                        onUpdateCornerRadius = onUpdateCornerRadius,
+                        onReset = onResetCalibration,
+                        onConfirm = onConfirmImport,
+                        onDismiss = onCancelImport,
+                    )
+                }
             }
         }
 
@@ -328,29 +454,26 @@ private fun TemplatesHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 18.dp),
+            .padding(horizontal = 24.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("模板", fontSize = 30.sp, fontWeight = FontWeight.Black, color = colors.textPrimary)
+        Text(
+            "模板",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = (-0.6).sp,
+            color = colors.textPrimary,
+        )
         Row(
             modifier = Modifier
-                .background(colors.glass, CircleShape)
-                .border(1.dp, colors.glassStroke, CircleShape)
-                .padding(4.dp),
+                .background(colors.glass.copy(alpha = if (isDark) 0.94f else 0.98f), CircleShape)
+                .border(1.dp, colors.glassStroke.copy(alpha = if (isDark) 0.9f else 0.7f), CircleShape)
+                .padding(horizontal = 4.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CountCapsule(text = "$count", isDark = isDark)
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(ShellColors.AccentBlue, CircleShape)
-                    .noRippleClick(onAdd),
-                contentAlignment = Alignment.Center,
-            ) {
-                AppIcon(AppIconId.Add, "新增模板", tint = Color.White)
-            }
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -359,6 +482,15 @@ private fun TemplatesHeader(
                 contentAlignment = Alignment.Center,
             ) {
                 AppIcon(AppIconId.Stats, "模板总览", tint = colors.textMuted)
+            }
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(ShellColors.AccentBlue, CircleShape)
+                    .noRippleClick(onAdd),
+                contentAlignment = Alignment.Center,
+            ) {
+                AppIcon(AppIconId.Add, "新增模板", tint = Color.White)
             }
         }
     }
@@ -375,84 +507,172 @@ private fun TemplateCarouselCard(
     onApply: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val colors = MaterialTheme.shellShotTokens.colors
     val absOffset = abs(relativeOffset)
-    val isCenter = absOffset < 0.1f
-    val alpha = if (absOffset >= 3f) 0f else 1f - absOffset * 0.4f
+    val isCenter = absOffset < 0.35f
+    val showActionRow = absOffset < 0.6f
+    val alpha = when {
+        absOffset >= 3f -> 0f
+        else -> (1f - absOffset * 0.4f).coerceAtLeast(0f)
+    }
     val scale = 1f - absOffset * 0.12f
+    val rotation = relativeOffset * 12f
     Box(
         modifier = modifier
             .width(260.dp)
             .height(480.dp)
             .graphicsLayer {
                 translationX = (relativeOffset * 140.dp.toPx())
-                translationY = (absOffset * 35.dp.toPx())
-                rotationZ = relativeOffset * 12f
+                translationY = (abs(relativeOffset) * 35.dp.toPx())
+                rotationZ = rotation
                 scaleX = scale
                 scaleY = scale
                 this.alpha = alpha
                 transformOrigin = TransformOrigin(0.5f, 1f)
+                shadowElevation = if (isCenter) 40.dp.toPx() else 8.dp.toPx()
+                shape = RoundedCornerShape(40.dp)
+                clip = false
             }
-            .background(MaterialTheme.shellShotTokens.colors.surface, RoundedCornerShape(40.dp))
-            .border(
-                width = 6.dp,
-                color = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF5F5F5),
-                shape = RoundedCornerShape(40.dp),
-            )
-            .noRippleClick(onClick),
+            .noRippleClick(enabled = !isCenter, onClick = onClick),
     ) {
+        if (isCenter) {
+            CardAura(isDark = isDark)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(40.dp))
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = if (isDark) {
+                            listOf(
+                                colors.surface.copy(alpha = if (isCenter) 1f else 0.92f),
+                                colors.surfaceAlt.copy(alpha = if (isCenter) 0.98f else 0.88f),
+                            )
+                        } else {
+                            listOf(
+                                Color.White.copy(alpha = if (isCenter) 1f else 0.95f),
+                                Color(0xFFF7F7FA).copy(alpha = if (isCenter) 0.98f else 0.90f),
+                            )
+                        },
+                    ),
+                    shape = RoundedCornerShape(40.dp),
+                )
+                .border(
+                    width = if (isCenter) 6.dp else 4.dp,
+                    color = if (isDark) {
+                        Color.White.copy(alpha = if (isCenter) 0.08f else 0.04f)
+                    } else {
+                        Color(0xFFF7F7F9).copy(alpha = if (isCenter) 1f else 0.76f)
+                    },
+                    shape = RoundedCornerShape(40.dp),
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(if (isCenter) 0.82f else 0.72f)
+                .height(if (isCenter) 56.dp else 42.dp)
+                .align(Alignment.TopCenter)
+                .offset(y = 12.dp)
+                .blur(if (isCenter) 18.dp else 10.dp)
+                .background(
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = if (isCenter) 0.42f else 0.16f),
+                            Color.Transparent,
+                        )
+                    ),
+                    shape = CircleShape,
+                ),
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 40.dp),
+                .padding(horizontal = 24.dp, vertical = 34.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(22.dp))
             Box(
                 modifier = Modifier
-                    .width(124.dp)
-                    .height(220.dp)
-                    .background(MaterialTheme.shellShotTokens.colors.subtleFill, RoundedCornerShape(32.dp))
-                    .border(1.dp, MaterialTheme.shellShotTokens.colors.separator, RoundedCornerShape(32.dp)),
+                    .width(136.dp)
+                    .height(228.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 TemplatePreviewThumbnail(
-                    previewPath = template.previewAsset,
+                    previewPath = template.frameAsset,
                     contentDescription = template.name,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(10.dp),
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
                     cornerRadius = 24.dp,
                     selected = selected,
                 )
+                Box(
+                    modifier = Modifier
+                        .matchParentSizeCompat()
+                        .padding(horizontal = 10.dp, vertical = 12.dp)
+                        .blur(if (isCenter) 12.dp else 7.dp)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = if (isCenter) 0.16f else 0.08f),
+                                    Color.Transparent,
+                                ),
+                            ),
+                            shape = RoundedCornerShape(28.dp),
+                        )
+                )
             }
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(
-                template.name,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Black,
-                color = MaterialTheme.shellShotTokens.colors.textPrimary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${template.outputWidth.takeIf { it > 0 } ?: template.screenRect.width} × ${template.outputHeight.takeIf { it > 0 } ?: template.screenRect.height}",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.shellShotTokens.colors.textSecondary,
-            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Column(
+                modifier = Modifier,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    template.name,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black,
+                    color = colors.textPrimary.copy(alpha = if (isCenter) 1f else 0.84f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${template.outputWidth.takeIf { it > 0 } ?: template.screenRect.width} × ${template.outputHeight.takeIf { it > 0 } ?: template.screenRect.height}",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.textSecondary.copy(alpha = if (isCenter) 0.88f else 0.58f),
+                )
+            }
             Spacer(modifier = Modifier.weight(1f))
-            if (isCenter) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showActionRow,
+                enter = fadeIn(tween(260, easing = FastOutSlowInEasing)) + slideInVertically(tween(260, easing = FastOutSlowInEasing), initialOffsetY = { 10 }),
+                exit = fadeOut(tween(170, easing = FastOutSlowInEasing)) + slideOutVertically(tween(170, easing = FastOutSlowInEasing), targetOffsetY = { 10 }),
+            ) {
                 Row(
+                    modifier = Modifier
+                        .zIndex(5f)
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (selected) {
                         Box(
                             modifier = Modifier
-                                .background(MaterialTheme.shellShotTokens.colors.subtleFill, CircleShape)
+                                .background(
+                                    color = ShellColors.AccentBlue.copy(alpha = if (isDark) 0.22f else 0.12f),
+                                    shape = CircleShape,
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = ShellColors.AccentBlue.copy(alpha = if (isDark) 0.26f else 0.16f),
+                                    shape = CircleShape,
+                                )
                                 .padding(horizontal = 24.dp, vertical = 10.dp),
                         ) {
-                            Text("已应用", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.shellShotTokens.colors.textSecondary)
+                            Text("已应用", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ShellColors.AccentBlue)
                         }
                     } else {
                         Box(
@@ -464,22 +684,90 @@ private fun TemplateCarouselCard(
                             Text("应用模板", fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.White)
                         }
                     }
-                    if (template.canDelete) {
-                        Box(
-                            modifier = Modifier
-                                .padding(start = 8.dp)
-                                .size(40.dp)
-                                .noRippleClick(onDelete),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            AppIcon(icon = AppIconId.Delete, contentDescription = "删除模板", tint = ShellColors.AccentRed)
-                        }
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .size(40.dp)
+                            .graphicsLayer { this.alpha = if (template.canDelete) 1f else 0.38f }
+                            .noRippleClick(enabled = template.canDelete, onClick = onDelete),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AppIcon(
+                            icon = AppIconId.Delete,
+                            contentDescription = "删除模板",
+                            tint = if (template.canDelete) ShellColors.AccentRed else colors.textMuted,
+                        )
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun ExitingTemplateGhost(
+    template: ShellTemplate,
+    isDark: Boolean,
+    modifier: Modifier = Modifier,
+    onFinished: () -> Unit,
+) {
+    var exiting by remember(template.id) { mutableStateOf(false) }
+    val alpha by animateFloatAsState(
+        targetValue = if (exiting) 0f else 1f,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "template-exit-alpha",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (exiting) 0.6f else 1f,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 300f),
+        label = "template-exit-scale",
+    )
+    val blurDp by animateFloatAsState(
+        targetValue = if (exiting) 22f else 0f,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "template-exit-blur",
+    )
+    val ghostAlpha by animateFloatAsState(
+        targetValue = if (exiting) 0.18f else 0f,
+        animationSpec = tween(420, easing = FastOutSlowInEasing),
+        label = "template-exit-ghost",
+    )
+
+    LaunchedEffect(template.id) {
+        exiting = true
+        kotlinx.coroutines.delay(500)
+        onFinished()
+    }
+
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                this.alpha = alpha
+                scaleX = scale
+                scaleY = scale
+                translationY = if (exiting) 120.dp.toPx() else 0f
+            }
+            .blur(blurDp.dp)
+    ) {
+        TemplateCarouselCard(
+            template = template,
+            selected = false,
+            relativeOffset = 0f,
+            isDark = isDark,
+            onClick = {},
+            onApply = {},
+            onDelete = {},
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSizeCompat()
+                .background(Color.White.copy(alpha = ghostAlpha), RoundedCornerShape(40.dp))
+        )
+    }
+}
+
+@Composable
+private fun Modifier.matchParentSizeCompat(): Modifier = this.fillMaxSize()
 
 @Composable
 private fun EmptyTemplatesStage(
@@ -497,7 +785,6 @@ private fun EmptyTemplatesStage(
                 modifier = Modifier.size(110.dp),
             )
             Text("还没有模板", fontSize = 24.sp, fontWeight = FontWeight.Black, color = colors.textPrimary)
-            Text("导入第一张手机壳图片，弧形轮播就会在这里展开。", fontSize = 14.sp, color = colors.textSecondary)
             Box(
                 modifier = Modifier
                     .background(ShellColors.AccentBlue, CircleShape)
@@ -508,6 +795,59 @@ private fun EmptyTemplatesStage(
             }
         }
     }
+}
+
+@Composable
+private fun BoxScope.CardAura(
+    isDark: Boolean,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = if (isDark) 0.8f else 1f }
+            .blur(42.dp)
+            .background(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.Black.copy(alpha = if (isDark) 0.32f else 0.18f),
+                        Color(0xFF0A84FF).copy(alpha = if (isDark) 0.18f else 0.14f),
+                        Color.Transparent,
+                    ),
+                ),
+                shape = RoundedCornerShape(58.dp),
+            )
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 8.dp, vertical = 16.dp)
+            .blur(24.dp)
+            .background(
+                color = Color.Black.copy(alpha = if (isDark) 0.26f else 0.12f),
+                shape = RoundedCornerShape(48.dp),
+            )
+    )
+}
+
+@Composable
+private fun BoxScope.PreviewGlossOverlay(
+    isDark: Boolean,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(32.dp))
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (isDark) 0.14f else 0.28f),
+                        Color.White.copy(alpha = if (isDark) 0.06f else 0.12f),
+                        Color.Transparent,
+                        Color(0xFFB8E4FF).copy(alpha = if (isDark) 0.08f else 0.18f),
+                    ),
+                ),
+            )
+    )
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -527,7 +867,9 @@ private fun TemplateOverviewSheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isDark) Color.Black.copy(alpha = 0.96f) else Color(0xFFF2F2F7).copy(alpha = 0.96f)),
+            .background(
+                if (isDark) Color(0xFF050507) else Color(0xFFF2F2F7),
+            ),
     ) {
         Column(
             modifier = Modifier
@@ -538,7 +880,24 @@ private fun TemplateOverviewSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(if (isDark) Color.Black.copy(alpha = 0.9f) else Color(0xFFF2F2F7).copy(alpha = 0.9f))
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = if (isDark) {
+                                listOf(
+                                    Color.Black.copy(alpha = 0.88f),
+                                    Color.Black.copy(alpha = 0.78f),
+                                    Color.Transparent,
+                                )
+                            } else {
+                                listOf(
+                                    Color(0xFFF2F2F7),
+                                    Color(0xFFF2F2F7),
+                                    Color.Transparent,
+                                )
+                            }
+                        )
+                    )
                     .padding(horizontal = 24.dp, vertical = 18.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -658,6 +1017,7 @@ private fun OverviewCard(
 @Composable
 private fun OverviewDetailDialog(
     template: ShellTemplate,
+    visible: Boolean,
     isDark: Boolean,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope,
     sharedTransitionScope: SharedTransitionScope,
@@ -666,6 +1026,42 @@ private fun OverviewDetailDialog(
     onDismiss: () -> Unit,
 ) {
     val colors = MaterialTheme.shellShotTokens.colors
+    val sharedModifier = with(sharedTransitionScope) {
+        Modifier.sharedBounds(
+            sharedContentState = rememberSharedContentState(key = "overview-card-${template.id}"),
+            animatedVisibilityScope = animatedVisibilityScope,
+        )
+    }
+    val contentLift by animateFloatAsState(
+        targetValue = if (visible) 0f else 14f,
+        animationSpec = spring(stiffness = 310f, dampingRatio = 0.85f),
+        label = "overview-detail-lift",
+    )
+    val contentScale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.986f,
+        animationSpec = spring(stiffness = 300f, dampingRatio = 0.85f),
+        label = "overview-detail-scale",
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = if (visible) 260 else 220, easing = FastOutSlowInEasing),
+        label = "overview-detail-alpha",
+    )
+    val scrimAlpha by animateFloatAsState(
+        targetValue = if (visible) 0.48f else 0f,
+        animationSpec = tween(durationMillis = if (visible) 300 else 220, easing = FastOutSlowInEasing),
+        label = "overview-detail-scrim-alpha",
+    )
+    val chromeAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 260, delayMillis = if (visible) 90 else 0, easing = FastOutSlowInEasing),
+        label = "overview-detail-chrome-alpha",
+    )
+    val contentOffset by animateFloatAsState(
+        targetValue = if (visible) 0f else 8f,
+        animationSpec = tween(durationMillis = 280, delayMillis = if (visible) 110 else 0, easing = FastOutSlowInEasing),
+        label = "overview-detail-content-offset",
+    )
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -673,11 +1069,18 @@ private fun OverviewDetailDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.6f))
+                .background(Color.Black.copy(alpha = scrimAlpha))
                 .noRippleClick(onDismiss),
         )
         GlassSurfaceCard(
-            modifier = Modifier.width(360.dp),
+            modifier = sharedModifier
+                .width(360.dp)
+                .graphicsLayer {
+                    translationY = contentLift.dp.toPx()
+                    scaleX = contentScale
+                    scaleY = contentScale
+                    alpha = contentAlpha
+                },
             isDark = isDark,
             cornerRadius = 48,
             padding = 28,
@@ -689,6 +1092,7 @@ private fun OverviewDetailDialog(
                             .align(Alignment.TopStart)
                             .size(40.dp)
                             .background(ShellColors.AccentRed.copy(alpha = 0.12f), CircleShape)
+                            .graphicsLayer { alpha = chromeAlpha }
                             .noRippleClick(onDelete),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -700,6 +1104,7 @@ private fun OverviewDetailDialog(
                         .align(Alignment.TopEnd)
                         .size(40.dp)
                         .background(colors.subtleFill, CircleShape)
+                        .graphicsLayer { alpha = chromeAlpha }
                         .noRippleClick(onDismiss),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -710,8 +1115,8 @@ private fun OverviewDetailDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
                     modifier = Modifier
@@ -728,18 +1133,39 @@ private fun OverviewDetailDialog(
                         cornerRadius = 20.dp,
                     )
                 }
-                Text(template.name, fontSize = 24.sp, fontWeight = FontWeight.Black, color = colors.textPrimary)
                 Text(
-                    "${template.outputWidth.takeIf { it > 0 } ?: template.screenRect.width} × ${template.outputHeight.takeIf { it > 0 } ?: template.screenRect.height}",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ShellColors.AccentBlue,
+                    template.name,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black,
+                    color = colors.textPrimary,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = chromeAlpha
+                        translationY = contentOffset.dp.toPx()
+                    },
                 )
-                InfoRow("分辨率", "${template.outputWidth.takeIf { it > 0 } ?: template.screenRect.width} × ${template.outputHeight.takeIf { it > 0 } ?: template.screenRect.height}", isDark)
-                InfoRow("模板类型", if (template.canDelete) "用户自定义" else "内置模板", isDark)
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        alpha = chromeAlpha
+                        translationY = contentOffset.dp.toPx()
+                    }
+                ) {
+                    InfoRow("分辨率", "${template.outputWidth.takeIf { it > 0 } ?: template.screenRect.width} × ${template.outputHeight.takeIf { it > 0 } ?: template.screenRect.height}", isDark)
+                }
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        alpha = chromeAlpha
+                        translationY = contentOffset.dp.toPx()
+                    }
+                ) {
+                    InfoRow("模板类型", if (template.canDelete) "用户自定义" else "内置模板", isDark)
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .graphicsLayer {
+                            alpha = chromeAlpha
+                            translationY = contentOffset.dp.toPx()
+                        }
                         .background(ShellColors.AccentBlue, RoundedCornerShape(20.dp))
                         .padding(vertical = 16.dp)
                         .noRippleClick(onApply),
@@ -826,21 +1252,85 @@ private fun DeleteTemplateDialog(
 
 @Composable
 private fun TemplateLoadingOverlay(isDark: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "loading")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(950, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "spinner",
+    )
+    val colors = MaterialTheme.shellShotTokens.colors
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(ShellColors.loadingOverlay(isDark)),
+            .background(if (isDark) Color(0xD60A0A0D) else Color(0xDDF2F1EE))
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { it.consume() }
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
+        Column(
+            modifier = Modifier
+                .width(252.dp)
+                .background(
+                    color = if (isDark) {
+                        Color(0xFF17181C)
+                    } else {
+                        Color(0xFFFCFCFD)
+                    },
+                    shape = RoundedCornerShape(30.dp),
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.08f)
+                    } else {
+                        Color.White.copy(alpha = 0.78f)
+                    },
+                    shape = RoundedCornerShape(30.dp),
+                )
+                .padding(horizontal = 28.dp, vertical = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Canvas(
                 modifier = Modifier
-                    .size(64.dp)
-                    .background(Color.Transparent, CircleShape)
-                    .border(4.dp, Color.White.copy(alpha = 0.2f), CircleShape),
+                    .size(48.dp)
+                    .graphicsLayer { rotationZ = rotation },
+            ) {
+                drawArc(
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.12f)
+                    } else {
+                        Color(0xFFCCD1DA)
+                    },
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+                )
+                drawArc(
+                    color = ShellColors.AccentBlue,
+                    startAngle = -90f,
+                    sweepAngle = 94f,
+                    useCenter = false,
+                    style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+                )
+            }
+            Text(
+                "正在加载图片",
+                modifier = Modifier.padding(top = 18.dp),
+                color = colors.textPrimary,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
             )
-            Text("正在加载图片...", modifier = Modifier.padding(top = 20.dp), color = MaterialTheme.shellShotTokens.colors.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Black)
-            Text("系统正在智能解析屏幕比例", modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.shellShotTokens.colors.textSecondary, fontSize = 14.sp)
         }
     }
 }
@@ -880,46 +1370,54 @@ private fun TemplateConfetti(
     token: Long,
     onConsumed: (Long) -> Unit,
 ) {
-    val leftParty = remember(token) {
-        Party(
-            emitter = Emitter(duration = 250, TimeUnit.MILLISECONDS).perSecond(120),
-            angle = 60,
-            spread = 55,
-            speed = 18f,
-            maxSpeed = 28f,
-            position = Position.Relative(0.0, 1.0),
-            colors = listOf(
-                ShellColors.AccentBlue.toArgb(),
-                ShellColors.AccentCyan.toArgb(),
-                ShellColors.AccentGreen.toArgb(),
-                ShellColors.AccentPurple.toArgb(),
-                ShellColors.AccentPink.toArgb(),
-            ),
+    val leftColors = remember {
+        listOf(
+            ShellColors.AccentBlue.toArgb(),
+            ShellColors.AccentPurple.toArgb(),
+            ShellColors.AccentPink.toArgb(),
         )
     }
-    val rightParty = remember(token) {
-        Party(
-            emitter = Emitter(duration = 250, TimeUnit.MILLISECONDS).perSecond(120),
-            angle = 120,
-            spread = 55,
-            speed = 18f,
-            maxSpeed = 28f,
-            position = Position.Relative(1.0, 1.0),
-            colors = listOf(
-                ShellColors.AccentBlue.toArgb(),
-                ShellColors.AccentCyan.toArgb(),
-                ShellColors.AccentGreen.toArgb(),
-                ShellColors.AccentPurple.toArgb(),
-                ShellColors.AccentPink.toArgb(),
+    val rightColors = remember {
+        listOf(
+            ShellColors.AccentBlue.toArgb(),
+            ShellColors.AccentCyan.toArgb(),
+            ShellColors.AccentGreen.toArgb(),
+        )
+    }
+    val parties = remember(token) {
+        listOf(
+            Party(
+                emitter = Emitter(duration = 3000, TimeUnit.MILLISECONDS).perSecond(80),
+                angle = 60,
+                spread = 55,
+                speed = 35f,
+                maxSpeed = 50f,
+                damping = 0.9f,
+                timeToLive = 3000L,
+                fadeOutEnabled = true,
+                position = Position.Relative(0.0, 1.0),
+                colors = leftColors,
+            ),
+            Party(
+                emitter = Emitter(duration = 3000, TimeUnit.MILLISECONDS).perSecond(80),
+                angle = 120,
+                spread = 55,
+                speed = 35f,
+                maxSpeed = 50f,
+                damping = 0.9f,
+                timeToLive = 3000L,
+                fadeOutEnabled = true,
+                position = Position.Relative(1.0, 1.0),
+                colors = rightColors,
             ),
         )
     }
     LaunchedEffect(token) {
-        kotlinx.coroutines.delay(2800)
+        kotlinx.coroutines.delay(4000)
         onConsumed(token)
     }
     KonfettiView(
         modifier = Modifier.fillMaxSize(),
-        parties = listOf(leftParty, rightParty),
+        parties = parties,
     )
 }

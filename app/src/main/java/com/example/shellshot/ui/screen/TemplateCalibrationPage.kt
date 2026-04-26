@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -13,21 +14,23 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -48,6 +52,8 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -62,11 +68,14 @@ import com.example.shellshot.template.TemplateImportDraft
 import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.PremiumLoadingAnimation
+import com.example.shellshot.ui.components.noRippleClick
 import com.example.shellshot.ui.theme.ShellColors
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 private val CalibrationSaveButtonColor = Color(0xFF0A84FF)
+private const val TemplateNameMaxLength = 9
 
 @Composable
 fun TemplateCalibrationPage(
@@ -94,12 +103,14 @@ fun TemplateCalibrationPage(
         modifier = Modifier
             .fillMaxSize()
             .background(ShellColors.background(isDark))
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.navigationBars)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -124,7 +135,7 @@ fun TemplateCalibrationPage(
                     .weight(1f)
                     .fillMaxWidth()
                     .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(28.dp))
-                    .padding(14.dp),
+                    .padding(12.dp),
             ) {
                 TemplateCalibrationPreview(
                     draft = draft,
@@ -144,69 +155,57 @@ fun TemplateCalibrationPage(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(24.dp))
-                    .padding(16.dp),
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedTextField(
+                FloatingLabelTextField(
                     value = draft.templateName,
                     onValueChange = onUpdateName,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    singleLine = true,
-                    label = { Text("模板名称") },
+                    isDark = isDark,
+                    label = "模板名称",
+                    maxLength = TemplateNameMaxLength,
                 )
                 Text(
                     text = "圆角 ${draft.cornerRadiusPx.roundToInt()} px",
                     color = ShellColors.textPrimary(isDark),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                 )
-                Slider(
+                FrostedSlider(
                     value = draft.cornerRadiusPx,
                     onValueChange = onUpdateCornerRadius,
-                    valueRange = 0f..(minOf(geometry.visibleBounds.width, geometry.visibleBounds.height) / 2f).coerceAtLeast(1f),
+                    valueRange = 0f..max(1f, minOf(geometry.visibleBounds.width, geometry.visibleBounds.height) / 2f),
+                    isDark = isDark,
                 )
                 Text(
                     text = draft.detectionSummary,
                     color = ShellColors.textTertiary(isDark),
                     style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.basicMarquee(),
                 )
                 CalibrationLegend(
                     isDark = isDark,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = onReset,
+                    FrostedActionButton(
+                        text = "重置",
+                        isDark = isDark,
+                        primary = false,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ShellColors.badgeBg(isDark)),
-                    ) {
-                        Text("重置", color = ShellColors.textPrimary(isDark))
-                    }
-                    Button(
+                        onClick = onReset,
+                    )
+                    FrostedActionButton(
+                        text = "保存导入",
+                        isDark = isDark,
+                        primary = true,
+                        modifier = Modifier.weight(1f),
+                        enabled = !inProgress && draft.templateName.isNotBlank(),
                         onClick = {
                             if (!inProgress && draft.templateName.isNotBlank()) {
                                 onConfirm()
                             }
                         },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = CalibrationSaveButtonColor,
-                            disabledContainerColor = CalibrationSaveButtonColor,
-                            disabledContentColor = Color.White.copy(alpha = 0.65f),
-                        ),
-                        enabled = true,
-                    ) {
-                        Text(
-                            "保存导入",
-                            color = if (inProgress || draft.templateName.isBlank()) {
-                                Color.White.copy(alpha = 0.72f)
-                            } else {
-                                Color.White
-                            }
-                        )
-                    }
+                    )
                 }
             }
         }
@@ -215,32 +214,240 @@ fun TemplateCalibrationPage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(ShellColors.loadingOverlay(isDark)),
+                    .background(if (isDark) Color(0xD60A0A0D) else Color(0xDDF2F1EE))
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Column(
                     modifier = Modifier
                         .widthIn(max = 280.dp)
                         .background(
-                            color = ShellColors.surfaceHigh(isDark).copy(alpha = 0.96f),
-                            shape = RoundedCornerShape(28.dp),
+                            color = if (isDark) Color(0xFF17181C) else Color(0xFFFCFCFD),
+                            shape = RoundedCornerShape(30.dp),
                         )
-                        .padding(horizontal = 28.dp, vertical = 32.dp),
+                        .border(
+                            1.dp,
+                            if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.78f),
+                            RoundedCornerShape(30.dp),
+                        )
+                        .padding(horizontal = 28.dp, vertical = 28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     PremiumLoadingAnimation(
                         isDark = isDark,
-                        message = "正在保存模板...",
-                    )
-                    Text(
-                        text = "正在固化标定结果与模板资源",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ShellColors.textTertiary(isDark),
+                        message = "正在保存模板",
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FloatingLabelTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    isDark: Boolean,
+    label: String,
+    maxLength: Int,
+    modifier: Modifier = Modifier,
+) {
+    val countColor = if (value.length >= maxLength) {
+        CalibrationSaveButtonColor
+    } else {
+        ShellColors.textTertiary(isDark)
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = { next ->
+                onValueChange(next.take(maxLength))
+            },
+            singleLine = true,
+            textStyle = TextStyle(
+                color = ShellColors.textPrimary(isDark),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(ShellColors.glassSurface(isDark), RoundedCornerShape(18.dp))
+                .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(18.dp))
+                .padding(horizontal = 18.dp, vertical = 20.dp),
+            decorationBox = { innerTextField ->
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (value.isBlank()) {
+                        Text(
+                            text = "输入模板名称",
+                            color = ShellColors.textTertiary(isDark),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    innerTextField()
+                }
+            },
+        )
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp)
+                .offset(y = (-10).dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(999.dp))
+                    .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+            ) {
+                Text(
+                    text = label,
+                    color = ShellColors.textTertiary(isDark),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .background(
+                        ShellColors.surfaceHigh(isDark).copy(alpha = if (isDark) 0.96f else 0.9f),
+                        RoundedCornerShape(999.dp),
+                    )
+                    .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+            ) {
+                Text(
+                    text = "${value.length}/$maxLength",
+                    color = countColor,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        Text(
+            text = "最多 $maxLength 个字",
+            color = ShellColors.textTertiary(isDark),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(top = 76.dp, end = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun FrostedSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    isDark: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(38.dp),
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(valueRange.start, valueRange.endInclusive) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            val fraction = (offset.x / size.width).coerceIn(0f, 1f)
+                            onValueChange(valueRange.start + (valueRange.endInclusive - valueRange.start) * fraction)
+                        },
+                    ) { change, _ ->
+                        val fraction = (change.position.x / size.width).coerceIn(0f, 1f)
+                        onValueChange(valueRange.start + (valueRange.endInclusive - valueRange.start) * fraction)
+                    }
+                }
+        ) {
+            val fraction = ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start).coerceAtLeast(0.0001f)).coerceIn(0f, 1f)
+            val trackHeight = 12.dp.toPx()
+            val centerY = size.height / 2f
+            drawRoundRect(
+                color = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                topLeft = Offset(0f, centerY - trackHeight / 2f),
+                size = Size(size.width, trackHeight),
+                cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f),
+            )
+            drawRoundRect(
+                color = CalibrationSaveButtonColor.copy(alpha = 0.95f),
+                topLeft = Offset(0f, centerY - trackHeight / 2f),
+                size = Size(size.width * fraction, trackHeight),
+                cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f),
+            )
+            drawCircle(
+                color = CalibrationSaveButtonColor.copy(alpha = 0.22f),
+                radius = 18.dp.toPx(),
+                center = Offset(size.width * fraction, centerY),
+            )
+            drawCircle(
+                color = Color.White,
+                radius = 12.dp.toPx(),
+                center = Offset(size.width * fraction, centerY),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FrostedActionButton(
+    text: String,
+    isDark: Boolean,
+    primary: Boolean,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val background = when {
+        primary && enabled -> CalibrationSaveButtonColor
+        primary -> CalibrationSaveButtonColor.copy(alpha = 0.52f)
+        else -> ShellColors.glassSurface(isDark)
+    }
+    val foreground = when {
+        primary && enabled -> Color.White
+        primary -> Color.White.copy(alpha = 0.72f)
+        else -> ShellColors.textPrimary(isDark)
+    }
+    Box(
+        modifier = modifier
+            .background(background, RoundedCornerShape(18.dp))
+            .border(
+                width = if (primary) 0.dp else 1.dp,
+                color = ShellColors.separator(isDark),
+                shape = RoundedCornerShape(18.dp),
+            )
+            .noRippleClick(enabled = enabled, onClick = onClick)
+            .padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = foreground,
+            fontWeight = FontWeight.Black,
+            fontSize = 15.sp,
+        )
     }
 }
 
@@ -267,7 +474,7 @@ private fun TemplateCalibrationPreview(
         val displayHeight = draft.outputHeight * imageScale
         val contentLeft = (constraints.maxWidth - displayWidth) / 2f
         val contentTop = (constraints.maxHeight - displayHeight) / 2f
-        val hitRadiusPx = with(density) { 24.dp.toPx() }
+        val hitRadiusPx = with(density) { 32.dp.toPx() }
 
         fun toScreen(point: Offset): Offset = Offset(
             x = contentLeft + point.x * imageScale,
@@ -406,26 +613,29 @@ private fun TemplateCalibrationPreview(
                     }
                 }
 
+                val orangeColor = if (isDark) Color(0xFFFF9F0A) else Color(0xFFFF9500)
+                val blueColor = if (isDark) Color(0xFF32ADE6) else Color(0xFF0A84FF)
+                
                 drawPath(
                     path = polygon,
-                    color = Color(0x66FF9500),
+                    color = orangeColor.copy(alpha = 0.4f),
                 )
                 drawPath(
                     path = polygon,
-                    color = Color(0xFFFF9500),
+                    color = orangeColor,
                     style = Stroke(width = 2.5f),
                 )
 
                 val roundRadius = draft.cornerRadiusPx * imageScale
                 drawRoundRect(
-                    color = Color(0x220A84FF),
+                    color = blueColor.copy(alpha = 0.15f),
                     topLeft = Offset(geometry.visibleBounds.left * imageScale, geometry.visibleBounds.top * imageScale),
                     size = Size(geometry.visibleBounds.width * imageScale, geometry.visibleBounds.height * imageScale),
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(roundRadius, roundRadius),
                     style = Fill,
                 )
                 drawRoundRect(
-                    color = Color(0xFF0A84FF),
+                    color = blueColor,
                     topLeft = Offset(geometry.visibleBounds.left * imageScale, geometry.visibleBounds.top * imageScale),
                     size = Size(geometry.visibleBounds.width * imageScale, geometry.visibleBounds.height * imageScale),
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(roundRadius, roundRadius),
@@ -479,14 +689,14 @@ private fun CalibrationLegend(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         LegendRow(
-            color = Color(0xFFFF9500),
+            color = if (isDark) Color(0xFFFF9F0A) else Color(0xFFFF9500),
             label = "拖拽范围",
             description = "当前区域",
             isDark = isDark,
             modifier = Modifier.weight(1f),
         )
         LegendRow(
-            color = Color(0xFF0A84FF),
+            color = if (isDark) Color(0xFF32ADE6) else Color(0xFF0A84FF),
             label = "最终生效",
             description = "保存区域",
             isDark = isDark,

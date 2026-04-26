@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
@@ -36,7 +37,6 @@ import com.example.shellshot.ui.MainUiState
 import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.GlassSurfaceCard
-import com.example.shellshot.ui.components.PhoneMockFrame
 import com.example.shellshot.ui.components.SectionHeaderRow
 import com.example.shellshot.ui.components.StaggeredReveal
 import com.example.shellshot.ui.components.TemplatePreviewThumbnail
@@ -102,35 +102,61 @@ fun HomeTabScreen(
         }
 
         StaggeredReveal(index = 1) {
+            val monitorEnabled = uiState.settings.monitoringEnabled && uiState.hasCoreStartPermissions
+            val statusText = when {
+                !uiState.hasCoreStartPermissions -> "需要先完成权限授权"
+                uiState.settings.monitoringEnabled -> uiState.phaseLabel
+                else -> "点击右侧开关开始监听截图"
+            }
+            val statusTone = when {
+                !uiState.hasCoreStartPermissions -> colors.accentAmber
+                uiState.settings.monitoringEnabled && uiState.phaseLabel.contains("失败") -> colors.accentRed
+                uiState.settings.monitoringEnabled -> colors.accentGreen
+                else -> colors.textMuted
+            }
             GlassSurfaceCard(
                 isDark = isDark,
                 modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 34,
+                padding = 22,
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Text(
-                        text = "监听服务",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary,
-                    )
-                    Text(
-                        text = when {
-                            !uiState.hasCoreStartPermissions -> "需要先完成权限授权"
-                            uiState.settings.monitoringEnabled -> uiState.phaseLabel
-                            else -> "点击右侧开关开始监听截图"
-                        },
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.textMuted,
-                    )
-                    Box(modifier = Modifier.align(Alignment.End)) {
-                        com.example.shellshot.ui.components.LiquidGlassSwitch(
-                            isOn = uiState.settings.monitoringEnabled && uiState.hasCoreStartPermissions,
-                            onToggle = onToggleMonitoring,
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = "监听服务",
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = (-0.4).sp,
+                                color = colors.textPrimary,
+                            )
+                            Text(
+                                text = statusText,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 18.sp,
+                                color = if (statusTone == colors.textMuted) colors.textMuted else statusTone,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier.padding(start = 16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            com.example.shellshot.ui.components.LiquidGlassSwitch(
+                                isOn = monitorEnabled,
+                                onToggle = onToggleMonitoring,
+                            )
+                        }
                     }
                 }
             }
@@ -162,25 +188,26 @@ fun HomeTabScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    PhoneMockFrame {
-                        when {
-                            lastResult?.outputPath != null -> OutputPreview(
-                                path = lastResult.outputPath,
-                                isDark = isDark,
-                            )
-                            
-                            selectedTemplate != null -> TemplatePreviewThumbnail(
-                                previewPath = selectedTemplate.previewAsset,
-                                contentDescription = selectedTemplate.name,
-                                modifier = Modifier.fillMaxSize(),
-                                cornerRadius = 29.dp,
-                            )
-                            else -> Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(ShellColors.surfaceAlt(isDark)),
-                            )
-                        }
+                    when {
+                        lastResult?.outputPath != null -> OutputPreview(
+                            path = lastResult.outputPath,
+                            isDark = isDark,
+                        )
+                        
+                        selectedTemplate != null -> TemplatePreviewThumbnail(
+                            previewPath = selectedTemplate.previewAsset,
+                            contentDescription = selectedTemplate.name,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            cornerRadius = 29.dp,
+                        )
+                        else -> Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .background(ShellColors.surfaceAlt(isDark)),
+                        )
                     }
                     Spacer(modifier = Modifier.height(20.dp))
                     Text(
@@ -196,7 +223,7 @@ fun HomeTabScreen(
                         text = when {
                             lastResult?.status == ProcessingStatus.Success -> "最新导出已完成"
                             selectedTemplate != null -> "已准备好开始套壳"
-                            else -> "去模板页选择或导入模板"
+                            else -> ""
                         },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
@@ -230,7 +257,7 @@ private fun OutputPreview(
             bitmap = image!!,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
+            contentScale = ContentScale.Fit,
         )
     } else {
         Box(

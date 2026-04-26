@@ -1,6 +1,3 @@
 {
-  "templates": [
-    "templates/default_phone.json",
-    "templates/center_hole_black_phone.json"
-  ]
+  "templates": []
 }

@@ -24,6 +24,10 @@ import kotlinx.coroutines.launch
 class MainViewModel(
     private val appContainer: AppContainer,
 ) : ViewModel() {
+    private companion object {
+        const val TEMPLATE_NAME_MAX_LENGTH = 9
+    }
+
     private val templatesState = MutableStateFlow<List<ShellTemplate>>(emptyList())
     private val permissionSnapshotState = MutableStateFlow(PermissionSnapshot())
     private val deviceCaptureProfileState = MutableStateFlow(appContainer.templateRepository.currentDeviceCaptureProfile())
@@ -213,11 +217,17 @@ class MainViewModel(
             return
         }
 
-        val defaultName = imageUri.lastPathSegment
-            ?.substringAfterLast('/')
-            ?.substringBeforeLast('.')
-            ?.ifBlank { null }
-            ?: "我的模板"
+        val nextTemplateNumber = templatesState.value
+            .mapNotNull { template ->
+                Regex("""^模板\s*(\d+)$""").matchEntire(template.name.trim())
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+            }
+            .maxOrNull()
+            ?.plus(1)
+            ?: 1
+        val defaultName = "模板 $nextTemplateNumber"
 
         templateImportInProgressState.value = true
         templateImportPreparingState.value = true
@@ -254,7 +264,7 @@ class MainViewModel(
 
     fun updateTemplateImportName(name: String) {
         val current = templateImportDraftState.value ?: return
-        templateImportDraftState.value = current.copy(templateName = name)
+        templateImportDraftState.value = current.copy(templateName = name.take(TEMPLATE_NAME_MAX_LENGTH))
     }
 
     fun startCalibrationCornerDrag(cornerId: CalibrationCornerId, touchX: Float, touchY: Float) {

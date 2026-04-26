@@ -52,7 +52,7 @@ class TemplateAssetSaver(
 
         val config = TemplateConfig(
             id = templateId,
-            name = draft.templateName.ifBlank { "我的模板" },
+            name = draft.templateName.ifBlank { "模板 1" },
             templateVersion = ShellTemplate.CURRENT_TEMPLATE_VERSION,
             importPipelineVersion = TemplateAdjustmentApplier.IMPORT_PIPELINE_VERSION,
             manualAdjustVersion = TemplateAdjustmentApplier.MANUAL_ADJUST_VERSION,
