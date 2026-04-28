@@ -63,6 +63,7 @@ fun HomeTabScreen(
     val colors = MaterialTheme.shellShotTokens.colors
     val selectedTemplate = uiState.selectedTemplate
     val lastResult = uiState.lastProcessingResult
+    val latestOutputPath = uiState.latestOutputPreviewPath
 
     Column(
         modifier = modifier
@@ -189,13 +190,13 @@ fun HomeTabScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     when {
-                        lastResult?.outputPath != null -> OutputPreview(
-                            path = lastResult.outputPath,
+                        latestOutputPath != null -> OutputPreview(
+                            path = latestOutputPath!!,
                             isDark = isDark,
                         )
-                        
+
                         selectedTemplate != null -> TemplatePreviewThumbnail(
-                            previewPath = selectedTemplate.previewAsset,
+                            previewPath = selectedTemplate.displayPreviewAsset,
                             contentDescription = selectedTemplate.name,
                             modifier = Modifier
                                 .weight(1f)

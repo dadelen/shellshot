@@ -111,7 +111,9 @@ object ScreenshotDirectories {
         return lowerCaseName.endsWith(".png") ||
             lowerCaseName.endsWith(".jpg") ||
             lowerCaseName.endsWith(".jpeg") ||
-            lowerCaseName.endsWith(".webp")
+            lowerCaseName.endsWith(".webp") ||
+            lowerCaseName.endsWith(".heic") ||
+            lowerCaseName.endsWith(".heif")
     }
 
     fun looksLikeScreenshotRelativePath(

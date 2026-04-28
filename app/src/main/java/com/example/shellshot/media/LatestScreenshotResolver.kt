@@ -93,6 +93,7 @@ class LatestScreenshotResolver(
             ScreenshotRules.isEligibleScreenshotCandidate(
                 candidate = candidate,
                 screenshotRelativePath = screenshotRelativePath,
+                recentWindowMillis = MEDIASTORE_RECENT_WINDOW_MILLIS,
             )
         }
         val mediaStoreCandidateSummary = mediaStoreCandidates.joinToString(separator = " ; ") { summarizeCandidate(it) }
@@ -242,7 +243,8 @@ class LatestScreenshotResolver(
 
     private companion object {
         const val TAG = "LatestShotResolver"
-        const val RECENT_LIMIT = 4
+        const val RECENT_LIMIT = 15
+        const val MEDIASTORE_RECENT_WINDOW_MILLIS = 120_000L
 
         const val REASON_FIXED_PRIMARY_ACCEPTED = "fixed_primary_accepted"
         const val REASON_INVALID_INPUT = "invalid_input"

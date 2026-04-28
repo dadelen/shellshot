@@ -13,7 +13,11 @@ object ServiceController {
         val intent = Intent(context, AutoShellForegroundService::class.java).apply {
             action = AutoShellForegroundService.ACTION_START
         }
-        ContextCompat.startForegroundService(context, intent)
+        runCatching {
+            ContextCompat.startForegroundService(context, intent)
+        }.onFailure { throwable ->
+            log(context, "Service start failed: ${throwable::class.java.simpleName} ${throwable.message}")
+        }
     }
 
     fun stop(context: Context) {

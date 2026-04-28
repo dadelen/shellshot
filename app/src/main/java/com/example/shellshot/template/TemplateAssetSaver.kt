@@ -3,6 +3,7 @@ package com.example.shellshot.template
 import android.graphics.Bitmap
 import com.example.shellshot.processor.pipeline.ImportedTemplate
 import java.io.File
+import java.io.IOException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -23,11 +24,17 @@ class TemplateAssetSaver(
         val frameBaseFile = File(targetDirectory, "frameBase.png")
         val topHoleOverlayFile = File(targetDirectory, "topHoleOverlay.png")
         val previewFile = File(targetDirectory, "preview.png")
+        val sourcePreviewFile = File(targetDirectory, "source_preview${previewExtensionOf(draft.sourceImagePath)}")
         val maskFile = File(targetDirectory, "screen_mask.png")
         val configFile = File(targetDirectory, configFileName)
 
         writeBitmap(frameFile, importedTemplate.frameBitmap, "无法保存模板外框")
         writeBitmap(frameBaseFile, importedTemplate.frameBaseBitmap, "无法保存模板基础外框")
+        copySourcePreview(
+            sourcePath = draft.sourceImagePath,
+            targetFile = sourcePreviewFile,
+            failureMessage = "无法保存原始模板预览",
+        )
         val topHoleOverlayAsset = importedTemplate.topHoleOverlayBitmap?.let { overlay ->
             writeBitmap(topHoleOverlayFile, overlay, "无法保存模板顶部孔位层")
             topHoleOverlayFile.absolutePath
@@ -60,6 +67,7 @@ class TemplateAssetSaver(
             frameBaseAsset = frameBaseFile.absolutePath,
             topHoleOverlayAsset = topHoleOverlayAsset,
             previewAsset = previewFile.absolutePath,
+            sourcePreviewAsset = sourcePreviewFile.absolutePath,
             logicalWidth = draft.outputWidth,
             logicalHeight = draft.outputHeight,
             outputWidth = draft.outputWidth,
@@ -125,5 +133,24 @@ class TemplateAssetSaver(
                 failureMessage
             }
         }
+    }
+
+    private fun copySourcePreview(sourcePath: String, targetFile: File, failureMessage: String) {
+        val sourceFile = File(sourcePath)
+        check(sourceFile.exists() && sourceFile.isFile) { failureMessage }
+        try {
+            sourceFile.inputStream().use { input ->
+                targetFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        } catch (error: IOException) {
+            throw IllegalStateException(failureMessage, error)
+        }
+    }
+
+    private fun previewExtensionOf(sourcePath: String): String {
+        val suffix = File(sourcePath).extension.trim().lowercase()
+        return if (suffix.isBlank()) ".png" else ".${suffix}"
     }
 }

@@ -20,7 +20,7 @@ import com.example.shellshot.utils.ShellLogger
 class AppContainer(
     application: Application,
 ) {
-    private val appContext = application.applicationContext
+    val appContext = application.applicationContext
 
     val appStateStore = AppStateStore()
     val appPrefs = AppPrefs(appContext)

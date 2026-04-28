@@ -2,6 +2,8 @@ package com.example.shellshot.processor.pipeline
 
 import android.graphics.Path
 import android.graphics.RectF
+import com.example.shellshot.template.CalibrationCorner
+import com.example.shellshot.template.CalibrationCornerId
 import com.example.shellshot.template.ScaleMode
 import com.example.shellshot.template.ScreenRect
 import com.example.shellshot.template.ShellTemplate
@@ -33,6 +35,9 @@ class CalibratedComposeResolver {
         val scale = maxOf(targetW / srcW, targetH / srcH)
         val drawW = srcW * scale
         val drawH = srcH * scale
+        
+        // 完全按照预览标定的情况处理，使用简单的居中逻辑
+        // 与预览时的逻辑保持一致
         val rect = RectF(
             target.centerX() - drawW / 2f,
             target.centerY() - drawH / 2f,
@@ -59,6 +64,12 @@ class GeometryResolver {
         val dx = outputWidth / template.effectiveLogicalWidth(outputWidth).toFloat()
         val dy = outputHeight / template.effectiveLogicalHeight(outputHeight).toFloat()
         val scale = (dx + dy) / 2f
+        val calibrationCorners = template.calibrationCorners.map { corner ->
+            corner.copy(
+                x = (corner.x * dx).coerceIn(0f, outputWidth.toFloat()),
+                y = (corner.y * dy).coerceIn(0f, outputHeight.toFloat()),
+            )
+        }
         
         // 新模板以 screenMask 推导出的 visibleBounds 作为唯一几何真相。
         val screenRect = mapRect(template.visibleBounds ?: template.screenRect, dx, dy).apply {
@@ -90,12 +101,13 @@ class GeometryResolver {
         val statusBarSafeZones = template.statusBarSafeZones?.let { mapStatusBarSafeZones(it, dx, dy) }
         
         return ResolvedGeometry(
+            calibrationCorners = calibrationCorners,
             screenRect = screenRect,
             visibleBounds = visibleBounds,
             safeTopBand = safeTopBand,
             contentClipRect = contentClipRect,
-            contentClipPath = Path().apply { addRect(contentClipRect, Path.Direction.CW) },
-            screenPath = Path().apply { addRoundRect(screenRect, template.cornerRadius * scale, template.cornerRadius * scale, Path.Direction.CW) },
+            contentClipPath = buildClipPath(calibrationCorners, contentClipRect),
+            screenPath = buildScreenPath(calibrationCorners, screenRect, template.cornerRadius * scale),
             topSuppressionPath = suppressionPath,
             topSuppressionRect = topSuppressionRect,
             topHoleOverlayRect = topHoleOverlayRect,
@@ -108,6 +120,40 @@ class GeometryResolver {
             scaleToOutput = scale,
             safeTopInset = safeTopBand.bottom
         )
+    }
+
+    private fun buildScreenPath(
+        corners: List<CalibrationCorner>,
+        fallbackRect: RectF,
+        fallbackCornerRadius: Float,
+    ): Path = Path().apply {
+        if (!appendCornerPathIfPossible(corners)) {
+            addRoundRect(fallbackRect, fallbackCornerRadius, fallbackCornerRadius, Path.Direction.CW)
+        }
+    }
+
+    private fun buildClipPath(
+        corners: List<CalibrationCorner>,
+        fallbackRect: RectF,
+    ): Path = Path().apply {
+        if (!appendCornerPathIfPossible(corners)) {
+            addRect(fallbackRect, Path.Direction.CW)
+        }
+    }
+
+    private fun Path.appendCornerPathIfPossible(corners: List<CalibrationCorner>): Boolean {
+        if (corners.size < 4) return false
+        val ordered = corners.associateBy { it.id }
+        val topLeft = ordered[CalibrationCornerId.TOP_LEFT] ?: return false
+        val topRight = ordered[CalibrationCornerId.TOP_RIGHT] ?: return false
+        val bottomRight = ordered[CalibrationCornerId.BOTTOM_RIGHT] ?: return false
+        val bottomLeft = ordered[CalibrationCornerId.BOTTOM_LEFT] ?: return false
+        moveTo(topLeft.x, topLeft.y)
+        lineTo(topRight.x, topRight.y)
+        lineTo(bottomRight.x, bottomRight.y)
+        lineTo(bottomLeft.x, bottomLeft.y)
+        close()
+        return true
     }
 
     private fun mapRect(rect: ScreenRect, dx: Float, dy: Float): RectF {

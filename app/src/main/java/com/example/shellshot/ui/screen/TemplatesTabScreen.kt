@@ -4,9 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Animatable
@@ -230,7 +230,7 @@ fun TemplatesTabScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .offset(y = (-24).dp)
+                        .offset(y = (-36).dp)
                         .pointerInput(templates.map { it.id }) {
                             detectHorizontalDragGestures(
                                 onDragStart = {
@@ -293,31 +293,43 @@ fun TemplatesTabScreen(
                             ),
                     )
                     val baseIndex = animatable.value.roundToInt()
-                    (-2..2).forEach { offset ->
+                    val carouselOffsets = when (templates.size) {
+                        1 -> listOf(0)
+                        2 -> listOf(0, 1)
+                        else -> (-2..2).toList()
+                    }
+                    carouselOffsets.forEach { offset ->
                         val virtualIndex = baseIndex + offset
                         val template = templates[dataIndexFor(virtualIndex)]
-                        val relativeOffset = virtualIndex - animatable.value
-                        TemplateCarouselCard(
-                            template = template,
-                            selected = template.id == selectedTemplateId,
-                            relativeOffset = relativeOffset,
-                            isDark = isDark,
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .zIndex(50f - abs(relativeOffset)),
-                            onClick = {
-                                val stepDistance = abs(relativeOffset.roundToInt())
-                                if (stepDistance == 1) {
-                                    onSetCarouselAnchor(template.id)
-                                    carouselScope.launch {
-                                        delay(70)
-                                        haptics.selection()
+                        val relativeOffset = when (templates.size) {
+                            1 -> 0f
+                            else -> virtualIndex - animatable.value
+                        }
+                        val isExiting = exitingTemplates.containsKey(template.id)
+                        androidx.compose.runtime.key("carousel-${template.id}-$virtualIndex") {
+                            TemplateCarouselCard(
+                                template = template,
+                                selected = template.id == selectedTemplateId,
+                                relativeOffset = relativeOffset,
+                                isDark = isDark,
+                                visible = !isExiting,
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .zIndex(50f - abs(relativeOffset)),
+                                onClick = {
+                                    val stepDistance = abs(relativeOffset.roundToInt())
+                                    if (stepDistance == 1) {
+                                        onSetCarouselAnchor(template.id)
+                                        carouselScope.launch {
+                                            delay(70)
+                                            haptics.selection()
+                                        }
                                     }
-                                }
-                            },
-                            onApply = { onSelectTemplate(template.id) },
-                            onDelete = { onRequestDeleteTemplate(template.id) },
-                        )
+                                },
+                                onApply = { onSelectTemplate(template.id) },
+                                onDelete = { onRequestDeleteTemplate(template.id) },
+                            )
+                        }
                     }
                     // Exit animation overlay for deleted templates
                     exitingTemplates.forEach { (id, template) ->
@@ -422,13 +434,11 @@ fun TemplatesTabScreen(
                         inProgress = uiState.templateImportInProgress,
                         isDark = isDark,
                         onUpdateName = onUpdateImportName,
-                        onStartCornerDrag = onStartCornerDrag,
-                        onUpdateCorner = onUpdateCorner,
-                        onFinishCornerDrag = onFinishCornerDrag,
                         onUpdateCornerRadius = onUpdateCornerRadius,
                         onReset = onResetCalibration,
                         onConfirm = onConfirmImport,
                         onDismiss = onCancelImport,
+                        sampleScreenshot = uiState.calibrationSampleScreenshot,
                     )
                 }
             }
@@ -502,6 +512,7 @@ private fun TemplateCarouselCard(
     selected: Boolean,
     relativeOffset: Float,
     isDark: Boolean,
+    visible: Boolean = true,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onApply: () -> Unit,
@@ -514,7 +525,7 @@ private fun TemplateCarouselCard(
     val alpha = when {
         absOffset >= 3f -> 0f
         else -> (1f - absOffset * 0.4f).coerceAtLeast(0f)
-    }
+    } * if (visible) 1f else 0f
     val scale = 1f - absOffset * 0.12f
     val rotation = relativeOffset * 12f
     Box(
@@ -533,7 +544,7 @@ private fun TemplateCarouselCard(
                 shape = RoundedCornerShape(40.dp)
                 clip = false
             }
-            .noRippleClick(enabled = !isCenter, onClick = onClick),
+            .noRippleClick(enabled = visible && !isCenter, onClick = onClick),
     ) {
         if (isCenter) {
             CardAura(isDark = isDark)
@@ -599,7 +610,7 @@ private fun TemplateCarouselCard(
                 contentAlignment = Alignment.Center,
             ) {
                 TemplatePreviewThumbnail(
-                    previewPath = template.frameAsset,
+                    previewPath = template.displayPreviewAsset,
                     contentDescription = template.name,
                     modifier = Modifier
                         .fillMaxSize()
@@ -688,6 +699,10 @@ private fun TemplateCarouselCard(
                         modifier = Modifier
                             .padding(start = 8.dp)
                             .size(40.dp)
+                            .background(
+                                color = if (template.canDelete) ShellColors.AccentRed.copy(alpha = 0.12f) else colors.subtleFill,
+                                shape = CircleShape
+                            )
                             .graphicsLayer { this.alpha = if (template.canDelete) 1f else 0.38f }
                             .noRippleClick(enabled = template.canDelete, onClick = onDelete),
                         contentAlignment = Alignment.Center,
@@ -711,41 +726,36 @@ private fun ExitingTemplateGhost(
     modifier: Modifier = Modifier,
     onFinished: () -> Unit,
 ) {
-    var exiting by remember(template.id) { mutableStateOf(false) }
-    val alpha by animateFloatAsState(
-        targetValue = if (exiting) 0f else 1f,
-        animationSpec = tween(500, easing = FastOutSlowInEasing),
-        label = "template-exit-alpha",
-    )
-    val scale by animateFloatAsState(
-        targetValue = if (exiting) 0.6f else 1f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 300f),
-        label = "template-exit-scale",
-    )
-    val blurDp by animateFloatAsState(
-        targetValue = if (exiting) 22f else 0f,
-        animationSpec = tween(500, easing = FastOutSlowInEasing),
-        label = "template-exit-blur",
-    )
-    val ghostAlpha by animateFloatAsState(
-        targetValue = if (exiting) 0.18f else 0f,
-        animationSpec = tween(420, easing = FastOutSlowInEasing),
-        label = "template-exit-ghost",
-    )
+    val progress = remember(template.id) { Animatable(0f) }
 
     LaunchedEffect(template.id) {
-        exiting = true
-        kotlinx.coroutines.delay(500)
+        progress.snapTo(0f)
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(460, easing = FastOutSlowInEasing),
+        )
         onFinished()
     }
+
+    val eased = FastOutSlowInEasing.transform(progress.value)
+    val alpha = (1f - eased * 1.02f).coerceIn(0f, 1f)
+    val scale = 1f + 0.02f * (1f - kotlin.math.abs(eased * 2f - 1f)) - 0.07f * eased
+    val blurDp = 7f * eased
+    val liftFlashAlpha = (0.08f * (1f - eased)).coerceAtLeast(0f)
+    val ghostAlpha = (0.06f * (1f - eased)).coerceAtLeast(0f)
+    val translateY = (-88f * eased) - (10f * eased * eased)
+    val translateX = 4f * eased
+    val rotationZ = 1.8f * eased
 
     Box(
         modifier = modifier
             .graphicsLayer {
                 this.alpha = alpha
-                scaleX = scale
-                scaleY = scale
-                translationY = if (exiting) 120.dp.toPx() else 0f
+                this.scaleX = scale
+                this.scaleY = scale
+                this.translationY = translateY.dp.toPx()
+                this.translationX = translateX.dp.toPx()
+                this.rotationZ = rotationZ
             }
             .blur(blurDp.dp)
     ) {
@@ -761,7 +771,30 @@ private fun ExitingTemplateGhost(
         Box(
             modifier = Modifier
                 .matchParentSizeCompat()
-                .background(Color.White.copy(alpha = ghostAlpha), RoundedCornerShape(40.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = liftFlashAlpha),
+                            Color.Transparent,
+                        )
+                    ),
+                    RoundedCornerShape(40.dp),
+                )
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSizeCompat()
+                .graphicsLayer {
+                    this.translationY = 10.dp.toPx()
+                    this.scaleX = 0.992f
+                    this.scaleY = 0.992f
+                    this.alpha = ghostAlpha
+                }
+                .background(
+                    if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFDCE4F5).copy(alpha = 0.22f),
+                    RoundedCornerShape(40.dp),
+                )
+                .blur(6.dp)
         )
     }
 }
@@ -985,7 +1018,7 @@ private fun OverviewCard(
             contentAlignment = Alignment.Center,
         ) {
             TemplatePreviewThumbnail(
-                previewPath = template.previewAsset,
+                previewPath = template.displayPreviewAsset,
                 contentDescription = template.name,
                 modifier = Modifier
                     .fillMaxSize()
@@ -1125,7 +1158,7 @@ private fun OverviewDetailDialog(
                     contentAlignment = Alignment.Center,
                 ) {
                     TemplatePreviewThumbnail(
-                        previewPath = template.previewAsset,
+                        previewPath = template.displayPreviewAsset,
                         contentDescription = template.name,
                         modifier = Modifier
                             .fillMaxSize()
@@ -1382,42 +1415,49 @@ private fun TemplateConfetti(
             ShellColors.AccentBlue.toArgb(),
             ShellColors.AccentCyan.toArgb(),
             ShellColors.AccentGreen.toArgb(),
+            Color.White.toArgb(),
         )
     }
     val parties = remember(token) {
         listOf(
             Party(
-                emitter = Emitter(duration = 3000, TimeUnit.MILLISECONDS).perSecond(80),
-                angle = 60,
-                spread = 55,
-                speed = 35f,
-                maxSpeed = 50f,
+                speed = 10f,
+                maxSpeed = 30f,
                 damping = 0.9f,
-                timeToLive = 3000L,
-                fadeOutEnabled = true,
-                position = Position.Relative(0.0, 1.0),
+                angle = 315,
+                spread = 55,
                 colors = leftColors,
+                position = Position.Relative(0.08, 0.86),
+                emitter = Emitter(duration = 3, TimeUnit.SECONDS).perSecond(34),
+                timeToLive = 2200L,
+                fadeOutEnabled = true,
             ),
             Party(
-                emitter = Emitter(duration = 3000, TimeUnit.MILLISECONDS).perSecond(80),
-                angle = 120,
-                spread = 55,
-                speed = 35f,
-                maxSpeed = 50f,
+                speed = 10f,
+                maxSpeed = 30f,
                 damping = 0.9f,
-                timeToLive = 3000L,
-                fadeOutEnabled = true,
-                position = Position.Relative(1.0, 1.0),
+                angle = 225,
+                spread = 55,
                 colors = rightColors,
+                position = Position.Relative(0.92, 0.86),
+                emitter = Emitter(duration = 3, TimeUnit.SECONDS).perSecond(34),
+                timeToLive = 2200L,
+                fadeOutEnabled = true,
             ),
         )
     }
     LaunchedEffect(token) {
-        kotlinx.coroutines.delay(4000)
+        delay(3000)
         onConsumed(token)
     }
-    KonfettiView(
-        modifier = Modifier.fillMaxSize(),
-        parties = parties,
-    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(300f)
+    ) {
+        KonfettiView(
+            modifier = Modifier.fillMaxSize(),
+            parties = parties,
+        )
+    }
 }

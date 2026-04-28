@@ -150,6 +150,17 @@ class ScreenshotStabilityChecker(
         const val TAG = "ShotStability"
         const val PASS_REASON_SIZE_STABLE_AND_BOUNDS = "size_stable_and_bounds"
         const val PASS_REASON_READABLE_TWICE_AND_BOUNDS = "readable_twice_and_bounds"
-        val ATTEMPT_SCHEDULE_MILLIS = longArrayOf(0L, 150L, 350L, 700L, 1_200L, 2_000L)
+        val ATTEMPT_SCHEDULE_MILLIS = longArrayOf(
+            100L,
+            300L,
+            600L,
+            1_100L,
+            1_800L,
+            2_800L,
+            4_200L,
+            6_500L,
+            9_000L,
+            12_000L,
+        )
     }
 }

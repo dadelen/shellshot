@@ -65,6 +65,8 @@ data class MainUiState(
     val templateImportPreparing: Boolean = false,
     val templateCarouselAnchorId: String? = null,
     val templateConfettiToken: Long = 0L,
+    val calibrationSampleScreenshot: android.graphics.Bitmap? = null,
+    val latestOutputPreviewPath: String? = null,
 ) {
     val selectedTemplate: ShellTemplate?
         get() = templates.firstOrNull { it.id == settings.selectedTemplateId } ?: templates.firstOrNull()

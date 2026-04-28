@@ -5,6 +5,7 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 
 data class CalibratedTemplateGeometry(
+    val calibrationCorners: List<CalibrationCorner>,
     val visibleBounds: ScreenRect,
     val screenRect: ScreenRect,
     val contentClipRect: ScreenRect,
@@ -71,6 +72,10 @@ object TemplateCalibrationEngine {
             canvasHeight = draft.outputHeight.coerceAtLeast(2),
         )
         return CalibratedTemplateGeometry(
+            calibrationCorners = draft.corners.normalizedFor(
+                draft.outputWidth.coerceAtLeast(2),
+                draft.outputHeight.coerceAtLeast(2),
+            ),
             visibleBounds = visibleBounds,
             screenRect = visibleBounds,
             contentClipRect = contentClipRect,

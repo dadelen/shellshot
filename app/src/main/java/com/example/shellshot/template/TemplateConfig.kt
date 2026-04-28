@@ -141,6 +141,7 @@ data class TemplateConfig(
     val frameBaseAsset: String? = null,
     val topHoleOverlayAsset: String? = null,
     val previewAsset: String = "",
+    val sourcePreviewAsset: String? = null,
     // 模板逻辑空间尺寸（推荐显式设为 1000 × 2000）。
     // 所有 screenRect、topFeature、cutouts、path 均在此逻辑空间内定义，
     // 禁止用 frame PNG 原始像素尺寸直接参与计算。
@@ -211,6 +212,7 @@ data class ShellTemplate(
     val frameBaseAsset: String?,
     val topHoleOverlayAsset: String?,
     val previewAsset: String,
+    val sourcePreviewAsset: String?,
     val logicalWidth: Int,
     val logicalHeight: Int,
     val outputWidth: Int,
@@ -221,6 +223,7 @@ data class ShellTemplate(
     val screenMaskBitmap: String?,
     val screenMaskPath: String?,
     val calibration: TemplateCalibration?,
+    val calibrationCorners: List<CalibrationCorner>,
     val visibleBounds: ScreenRect?,
     val safeTopBand: ScreenRect?,
     val contentClipRect: ScreenRect?,
@@ -248,6 +251,11 @@ data class ShellTemplate(
     val isBuiltIn: Boolean = true,
     val storageDirectoryPath: String? = null,
 ) {
+    val displayPreviewAsset: String
+        get() = sourcePreviewAsset?.takeIf { it.isNotBlank() }
+            ?: frameAsset.takeIf { it.isNotBlank() }
+            ?: previewAsset
+
     val hasExplicitOutputSize: Boolean
         get() = outputWidth > 0 && outputHeight > 0
 
@@ -298,6 +306,7 @@ data class ShellTemplate(
                 frameBaseAsset = config.frameBaseAsset,
                 topHoleOverlayAsset = config.topHoleOverlayAsset,
                 previewAsset = config.previewAsset.ifBlank { config.frameAsset },
+                sourcePreviewAsset = config.sourcePreviewAsset,
                 logicalWidth = config.logicalWidth.takeIf { it > 0 } ?: config.outputWidth,
                 logicalHeight = config.logicalHeight.takeIf { it > 0 } ?: config.outputHeight,
                 outputWidth = config.outputWidth,
@@ -308,6 +317,7 @@ data class ShellTemplate(
                 screenMaskBitmap = config.screenMaskBitmap,
                 screenMaskPath = config.screenMaskPath ?: config.screenPath,
                 calibration = config.calibration,
+                calibrationCorners = config.calibration?.calibrationCorners.orEmpty(),
                 visibleBounds = config.calibration?.visibleBounds ?: config.visibleBounds ?: config.screenRect,
                 safeTopBand = config.safeTopBand,
                 contentClipRect = config.calibration?.contentClipRect ?: config.contentClipRect,

@@ -3,6 +3,7 @@ package com.example.shellshot.processor.pipeline
 import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.RectF
+import com.example.shellshot.template.CalibrationCorner
 import com.example.shellshot.template.CutoutRegion
 import com.example.shellshot.template.ScreenGeometryDerived
 import com.example.shellshot.template.ScreenRect
@@ -81,6 +82,7 @@ data class ImportedTemplate(
  * 最终输出在画布空间的几何模型
  */
 data class ResolvedGeometry(
+    val calibrationCorners: List<CalibrationCorner>,
     val screenRect: RectF,
     val visibleBounds: RectF,
     val safeTopBand: RectF,

@@ -44,7 +44,6 @@ class QueuedScreenshotTaskStore(
                 sizeBytes = file.length().takeIf { it > 0L } ?: 0L,
                 lastModifiedMillis = file.lastModified().takeIf { it > 0L } ?: 0L,
             )
-            val recentProcessedPathKey = ScreenshotCandidate.buildProcessedPathKey(absolutePath)
             val ingressSignature = ScreenshotCandidate.buildIngressSignature(
                 displayName = displayName,
                 relativePath = relativePath,
@@ -61,10 +60,7 @@ class QueuedScreenshotTaskStore(
             if (!ScreenshotDirectories.isScreenshotSource(absolutePath, relativePath, screenshotRelativePath)) {
                 return@withLock EnqueueTaskResult(false, "outside_configured_directory")
             }
-            if (
-                recentProcessedKey in settings.recentProcessedKeys ||
-                (recentProcessedPathKey != null && recentProcessedPathKey in settings.recentProcessedKeys)
-            ) {
+            if (recentProcessedKey in settings.recentProcessedKeys) {
                 return@withLock EnqueueTaskResult(false, "already_processed")
             }
 
@@ -351,7 +347,9 @@ class QueuedScreenshotTaskStore(
 
     private fun writeSnapshotLocked(snapshot: ScreenshotTaskSnapshot) {
         storeFile.parentFile?.mkdirs()
-        storeFile.writeText(json.encodeToString(snapshot))
+        val tempFile = File(storeFile.parentFile, "${storeFile.name}.tmp")
+        tempFile.writeText(json.encodeToString(snapshot))
+        tempFile.renameTo(storeFile)
     }
 
     private fun pruneRecentSuccessfulSignaturesLocked(now: Long) {

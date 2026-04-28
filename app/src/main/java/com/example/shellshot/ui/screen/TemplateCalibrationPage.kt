@@ -2,12 +2,15 @@ package com.example.shellshot.ui.screen
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -44,10 +47,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -83,21 +91,19 @@ fun TemplateCalibrationPage(
     inProgress: Boolean,
     isDark: Boolean,
     onUpdateName: (String) -> Unit,
-    onStartCornerDrag: (CalibrationCornerId, Float, Float) -> Unit,
-    onUpdateCorner: (CalibrationCornerId, Float, Float) -> Unit,
-    onFinishCornerDrag: () -> Unit,
     onUpdateCornerRadius: (Float) -> Unit,
     onReset: () -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    sampleScreenshot: android.graphics.Bitmap? = null,
 ) {
     val density = LocalDensity.current
     val sourceBitmap: Bitmap? = remember(draft.sourceImagePath) {
         runCatching { BitmapFactory.decodeFile(draft.sourceImagePath) }.getOrNull()
     }
     val sourceImage = remember(sourceBitmap) { sourceBitmap?.asImageBitmap() }
+    val sampleImage = remember(sampleScreenshot) { sampleScreenshot?.asImageBitmap() }
     val geometry = remember(draft) { TemplateCalibrationEngine.buildGeometry(draft, forSave = false) }
-    var magnifierState by remember { mutableStateOf(CalibrationMagnifierState()) }
 
     Box(
         modifier = Modifier
@@ -134,6 +140,7 @@ fun TemplateCalibrationPage(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(28.dp))
                     .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(28.dp))
                     .padding(12.dp),
             ) {
@@ -143,11 +150,8 @@ fun TemplateCalibrationPage(
                     isDark = isDark,
                     sourceBitmap = sourceBitmap,
                     sourceImage = sourceImage,
-                    magnifierState = magnifierState,
-                    onMagnifierStateChange = { magnifierState = it },
-                    onStartCornerDrag = onStartCornerDrag,
-                    onUpdateCorner = onUpdateCorner,
-                    onFinishCornerDrag = onFinishCornerDrag,
+                    sampleBitmap = sampleScreenshot,
+                    sampleImage = sampleImage,
                 )
             }
 
@@ -158,11 +162,15 @@ fun TemplateCalibrationPage(
                     .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                FloatingLabelTextField(
+                Text(
+                    text = "模板名称",
+                    color = ShellColors.textPrimary(isDark),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                )
+                SimpleTextField(
                     value = draft.templateName,
                     onValueChange = onUpdateName,
                     isDark = isDark,
-                    label = "模板名称",
                     maxLength = TemplateNameMaxLength,
                 )
                 Text(
@@ -181,10 +189,6 @@ fun TemplateCalibrationPage(
                     color = ShellColors.textTertiary(isDark),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.basicMarquee(),
-                )
-                CalibrationLegend(
-                    isDark = isDark,
-                    modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FrostedActionButton(
@@ -252,106 +256,54 @@ fun TemplateCalibrationPage(
 }
 
 @Composable
-private fun FloatingLabelTextField(
+private fun SimpleTextField(
     value: String,
     onValueChange: (String) -> Unit,
     isDark: Boolean,
-    label: String,
     maxLength: Int,
     modifier: Modifier = Modifier,
 ) {
-    val countColor = if (value.length >= maxLength) {
-        CalibrationSaveButtonColor
-    } else {
-        ShellColors.textTertiary(isDark)
-    }
-    Box(
+    BasicTextField(
+        value = value,
+        onValueChange = { next ->
+            onValueChange(next.take(maxLength))
+        },
+        singleLine = true,
+        textStyle = TextStyle(
+            color = ShellColors.textPrimary(isDark),
+            fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+        ),
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 10.dp),
-    ) {
-        BasicTextField(
-            value = value,
-            onValueChange = { next ->
-                onValueChange(next.take(maxLength))
-            },
-            singleLine = true,
-            textStyle = TextStyle(
-                color = ShellColors.textPrimary(isDark),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(ShellColors.glassSurface(isDark), RoundedCornerShape(18.dp))
-                .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(18.dp))
-                .padding(horizontal = 18.dp, vertical = 20.dp),
-            decorationBox = { innerTextField ->
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    if (value.isBlank()) {
-                        Text(
-                            text = "输入模板名称",
-                            color = ShellColors.textTertiary(isDark),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                    innerTextField()
-                }
-            },
-        )
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp)
-                .offset(y = (-10).dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+            .background(ShellColors.glassSurface(isDark), RoundedCornerShape(18.dp))
+            .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(18.dp))
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        decorationBox = { innerTextField ->
             Box(
-                modifier = Modifier
-                    .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(999.dp))
-                    .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 10.dp, vertical = 3.dp),
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.CenterStart,
             ) {
-                Text(
-                    text = label,
-                    color = ShellColors.textTertiary(isDark),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .background(
-                        ShellColors.surfaceHigh(isDark).copy(alpha = if (isDark) 0.96f else 0.9f),
-                        RoundedCornerShape(999.dp),
+                if (value.isBlank()) {
+                    Text(
+                        text = "输入模板名称",
+                        color = ShellColors.textTertiary(isDark),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
                     )
-                    .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 10.dp, vertical = 3.dp),
-            ) {
+                }
+                innerTextField()
+                
                 Text(
                     text = "${value.length}/$maxLength",
-                    color = countColor,
-                    fontSize = 11.sp,
+                    color = ShellColors.textTertiary(isDark),
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.CenterEnd)
                 )
             }
-        }
-        Text(
-            text = "最多 $maxLength 个字",
-            color = ShellColors.textTertiary(isDark),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(top = 76.dp, end = 4.dp),
-        )
-    }
+        },
+    )
 }
 
 @Composable
@@ -458,11 +410,8 @@ private fun TemplateCalibrationPreview(
     isDark: Boolean,
     sourceBitmap: Bitmap?,
     sourceImage: androidx.compose.ui.graphics.ImageBitmap?,
-    magnifierState: CalibrationMagnifierState,
-    onMagnifierStateChange: (CalibrationMagnifierState) -> Unit,
-    onStartCornerDrag: (CalibrationCornerId, Float, Float) -> Unit,
-    onUpdateCorner: (CalibrationCornerId, Float, Float) -> Unit,
-    onFinishCornerDrag: () -> Unit,
+    sampleBitmap: Bitmap?,
+    sampleImage: androidx.compose.ui.graphics.ImageBitmap? = null,
 ) {
     val density = LocalDensity.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -472,43 +421,13 @@ private fun TemplateCalibrationPreview(
         ).coerceAtLeast(0.01f)
         val displayWidth = draft.outputWidth * imageScale
         val displayHeight = draft.outputHeight * imageScale
-        val contentLeft = (constraints.maxWidth - displayWidth) / 2f
-        val contentTop = (constraints.maxHeight - displayHeight) / 2f
-        val hitRadiusPx = with(density) { 32.dp.toPx() }
-
-        fun toScreen(point: Offset): Offset = Offset(
-            x = contentLeft + point.x * imageScale,
-            y = contentTop + point.y * imageScale,
-        )
-
-        fun toImage(point: Offset): Offset = Offset(
-            x = ((point.x - contentLeft) / imageScale).coerceIn(0f, draft.outputWidth.toFloat()),
-            y = ((point.y - contentTop) / imageScale).coerceIn(0f, draft.outputHeight.toFloat()),
-        )
-
-        fun nearestCorner(point: Offset): CalibrationCornerId? {
-            val candidates = draft.normalizedCorners.mapNotNull { corner ->
-                val screenPoint = toScreen(Offset(corner.x, corner.y))
-                val distance = hypot((screenPoint.x - point.x).toDouble(), (screenPoint.y - point.y).toDouble()).toFloat()
-                if (distance <= hitRadiusPx) corner.id to distance else null
-            }
-            return candidates.minByOrNull { it.second }?.first
-        }
-
         Box(
             modifier = Modifier
                 .widthIn(max = with(density) { displayWidth.toDp() })
                 .height(with(density) { displayHeight.toDp() })
                 .fillMaxWidth()
         ) {
-            if (sourceImage != null) {
-                Image(
-                    painter = BitmapPainter(sourceImage),
-                    contentDescription = "模板预览",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.FillBounds,
-                )
-            } else {
+            if (sourceImage == null && sampleImage == null) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -516,160 +435,200 @@ private fun TemplateCalibrationPreview(
                 )
             }
 
+            // 移除定点拖拽功能，添加双指缩放功能
+            var pinchScale by remember(draft.sourceImagePath, sampleImage) { mutableStateOf(1f) }
+            var offset by remember(draft.sourceImagePath, sampleImage) { mutableStateOf(Offset.Zero) }
+            
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(draft.normalizedCorners, sourceBitmap, draft.snapEnabled) {
-                        var draggingCornerId: CalibrationCornerId? = null
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                val selected = nearestCorner(offset)
-                                draggingCornerId = selected
-                                if (selected != null) {
-                                    val imagePoint = toImage(offset)
-                                    onStartCornerDrag(selected, imagePoint.x, imagePoint.y)
-                                    onMagnifierStateChange(
-                                        CalibrationMagnifierState(
-                                            activeCornerId = selected,
-                                            fingerX = offset.x,
-                                            fingerY = offset.y,
-                                            focusX = imagePoint.x,
-                                            focusY = imagePoint.y,
-                                            visible = true,
-                                        )
-                                    )
-                                }
-                            },
-                            onDragEnd = {
-                                draggingCornerId = null
-                                onFinishCornerDrag()
-                                onMagnifierStateChange(CalibrationMagnifierState())
-                            },
-                            onDragCancel = {
-                                draggingCornerId = null
-                                onFinishCornerDrag()
-                                onMagnifierStateChange(CalibrationMagnifierState())
-                            },
-                        ) { change, _ ->
-                            val cornerId = draggingCornerId ?: return@detectDragGestures
-                            val rawImagePoint = toImage(change.position)
-                            val snapped = if (draft.snapEnabled && sourceBitmap != null) {
-                                CalibrationSnapEngine.snap(sourceBitmap, rawImagePoint.x, rawImagePoint.y)
-                            } else {
-                                null
-                            }
-                            val finalX = snapped?.x ?: rawImagePoint.x
-                            val finalY = snapped?.y ?: rawImagePoint.y
-                            onUpdateCorner(cornerId, finalX, finalY)
-                            onMagnifierStateChange(
-                                CalibrationMagnifierState(
-                                    activeCornerId = cornerId,
-                                    fingerX = change.position.x,
-                                    fingerY = change.position.y,
-                                    focusX = finalX,
-                                    focusY = finalY,
-                                    visible = true,
+                    .pointerInput(draft.sourceImagePath, sampleImage) {
+                        detectTransformGestures(
+                            onGesture = { centroid, pan, zoom, rotation ->
+                                pinchScale = (pinchScale * zoom).coerceIn(1f, 3f)
+                                val maxOffsetX = ((displayWidth * pinchScale) - displayWidth).coerceAtLeast(0f) / 2f
+                                val maxOffsetY = ((displayHeight * pinchScale) - displayHeight).coerceAtLeast(0f) / 2f
+                                offset = Offset(
+                                    x = (offset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
+                                    y = (offset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY),
                                 )
-                            )
-                            change.consume()
-                        }
+                            }
+                        )
                     }
             ) {
-                val corners = draft.normalizedCorners.associateBy { it.id }
-                val topLeft = corners[CalibrationCornerId.TOP_LEFT] ?: return@Canvas
-                val topRight = corners[CalibrationCornerId.TOP_RIGHT] ?: return@Canvas
-                val bottomRight = corners[CalibrationCornerId.BOTTOM_RIGHT] ?: return@Canvas
-                val bottomLeft = corners[CalibrationCornerId.BOTTOM_LEFT] ?: return@Canvas
-
-                val polygon = Path().apply {
-                    moveTo(topLeft.x * imageScale, topLeft.y * imageScale)
-                    lineTo(topRight.x * imageScale, topRight.y * imageScale)
-                    lineTo(bottomRight.x * imageScale, bottomRight.y * imageScale)
-                    lineTo(bottomLeft.x * imageScale, bottomLeft.y * imageScale)
-                    close()
-                }
-
-                if (draft.showGuides) {
-                    drawRect(
-                        color = Color.White.copy(alpha = 0.12f),
-                        size = size,
-                        style = Stroke(width = 1f),
+                val outerCardPivot = Offset(size.width / 2f, size.height / 2f)
+                withTransform({
+                    translate(
+                        left = offset.x,
+                        top = offset.y,
                     )
-                    val thirdW = size.width / 3f
-                    val thirdH = size.height / 3f
-                    repeat(2) { index ->
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.18f),
-                            start = Offset(thirdW * (index + 1), 0f),
-                            end = Offset(thirdW * (index + 1), size.height),
-                            strokeWidth = 1f,
-                        )
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.18f),
-                            start = Offset(0f, thirdH * (index + 1)),
-                            end = Offset(size.width, thirdH * (index + 1)),
-                            strokeWidth = 1f,
+                    scale(
+                        scaleX = pinchScale,
+                        scaleY = pinchScale,
+                        pivot = outerCardPivot,
+                    )
+                }) {
+                    // 1. Draw Sample Screenshot (Bottom)
+                    if (sampleImage != null) {
+                        val rect = geometry.visibleBounds
+                        val r = draft.cornerRadiusPx * imageScale
+                        val rectWidth = rect.width * imageScale
+                        val rectHeight = rect.height * imageScale
+
+                        val sampleWidth = sampleImage.width.toFloat()
+                        val sampleHeight = sampleImage.height.toFloat()
+                        val overscan = 10f * imageScale
+                        val targetW = rectWidth + overscan * 2f
+                        val targetH = rectHeight + overscan * 2f
+                        val contentScale = maxOf(targetW / sampleWidth, targetH / sampleHeight)
+                        val drawWidth = sampleWidth * contentScale
+                        val drawHeight = sampleHeight * contentScale
+                        val drawX = rect.left * imageScale + (rectWidth - drawWidth) / 2
+                        val drawY = rect.top * imageScale + (rectHeight - drawHeight) / 2
+                        val ordered = draft.normalizedCorners.associateBy { it.id }
+                        val polygonPath = Path().apply {
+                            moveTo((ordered[CalibrationCornerId.TOP_LEFT]?.x ?: rect.left.toFloat()) * imageScale, (ordered[CalibrationCornerId.TOP_LEFT]?.y ?: rect.top.toFloat()) * imageScale)
+                            lineTo((ordered[CalibrationCornerId.TOP_RIGHT]?.x ?: rect.right.toFloat()) * imageScale, (ordered[CalibrationCornerId.TOP_RIGHT]?.y ?: rect.top.toFloat()) * imageScale)
+                            lineTo((ordered[CalibrationCornerId.BOTTOM_RIGHT]?.x ?: rect.right.toFloat()) * imageScale, (ordered[CalibrationCornerId.BOTTOM_RIGHT]?.y ?: rect.bottom.toFloat()) * imageScale)
+                            lineTo((ordered[CalibrationCornerId.BOTTOM_LEFT]?.x ?: rect.left.toFloat()) * imageScale, (ordered[CalibrationCornerId.BOTTOM_LEFT]?.y ?: rect.bottom.toFloat()) * imageScale)
+                            close()
+                        }
+                        if (sampleBitmap != null && ordered.size == 4) {
+                            drawIntoCanvas { canvas ->
+                                val nativeCanvas = canvas.nativeCanvas
+                                val matrix = Matrix()
+                                val src = floatArrayOf(
+                                    0f, 0f,
+                                    sampleBitmap.width.toFloat(), 0f,
+                                    sampleBitmap.width.toFloat(), sampleBitmap.height.toFloat(),
+                                    0f, sampleBitmap.height.toFloat(),
+                                )
+                                val dst = floatArrayOf(
+                                    (ordered[CalibrationCornerId.TOP_LEFT]?.x ?: 0f) * imageScale,
+                                    (ordered[CalibrationCornerId.TOP_LEFT]?.y ?: 0f) * imageScale,
+                                    (ordered[CalibrationCornerId.TOP_RIGHT]?.x ?: rect.right.toFloat()) * imageScale,
+                                    (ordered[CalibrationCornerId.TOP_RIGHT]?.y ?: 0f) * imageScale,
+                                    (ordered[CalibrationCornerId.BOTTOM_RIGHT]?.x ?: rect.right.toFloat()) * imageScale,
+                                    (ordered[CalibrationCornerId.BOTTOM_RIGHT]?.y ?: rect.bottom.toFloat()) * imageScale,
+                                    (ordered[CalibrationCornerId.BOTTOM_LEFT]?.x ?: 0f) * imageScale,
+                                    (ordered[CalibrationCornerId.BOTTOM_LEFT]?.y ?: rect.bottom.toFloat()) * imageScale,
+                                )
+                                matrix.setPolyToPoly(src, 0, dst, 0, 4)
+                                nativeCanvas.save()
+                                nativeCanvas.clipPath(polygonPath.asAndroidPath())
+                                nativeCanvas.drawBitmap(sampleBitmap, matrix, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                    isFilterBitmap = true
+                                    isDither = true
+                                })
+                                nativeCanvas.restore()
+                            }
+                        } else {
+                            clipPath(Path().apply {
+                                addRoundRect(
+                                    androidx.compose.ui.geometry.RoundRect(
+                                        rect = androidx.compose.ui.geometry.Rect(
+                                            offset = Offset(rect.left * imageScale, rect.top * imageScale),
+                                            size = Size(rectWidth, rectHeight)
+                                        ),
+                                        cornerRadius = CornerRadius(r, r)
+                                    )
+                                )
+                            }) {
+                                drawImage(
+                                    image = sampleImage,
+                                    dstOffset = androidx.compose.ui.unit.IntOffset(
+                                        drawX.roundToInt(),
+                                        drawY.roundToInt()
+                                    ),
+                                    dstSize = androidx.compose.ui.unit.IntSize(
+                                        drawWidth.roundToInt(),
+                                        drawHeight.roundToInt()
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Draw Shell Frame (Middle)
+                    if (sourceImage != null) {
+                        drawImage(
+                            image = sourceImage,
+                            dstSize = androidx.compose.ui.unit.IntSize(size.width.roundToInt(), size.height.roundToInt())
                         )
                     }
+
+                    // 3. Draw Calibration Guides (Top)
+                    val corners = draft.normalizedCorners.associateBy { it.id }
+                    val topLeft = corners[CalibrationCornerId.TOP_LEFT] ?: return@withTransform
+                    val topRight = corners[CalibrationCornerId.TOP_RIGHT] ?: return@withTransform
+                    val bottomRight = corners[CalibrationCornerId.BOTTOM_RIGHT] ?: return@withTransform
+                    val bottomLeft = corners[CalibrationCornerId.BOTTOM_LEFT] ?: return@withTransform
+
+                    val polygon = Path().apply {
+                        moveTo(topLeft.x * imageScale, topLeft.y * imageScale)
+                        lineTo(topRight.x * imageScale, topRight.y * imageScale)
+                        lineTo(bottomRight.x * imageScale, bottomRight.y * imageScale)
+                        lineTo(bottomLeft.x * imageScale, bottomLeft.y * imageScale)
+                        close()
+                    }
+
+                    if (draft.showGuides) {
+                        drawRect(
+                            color = Color.White.copy(alpha = 0.12f),
+                            size = size,
+                            style = Stroke(width = 1f),
+                        )
+                        val thirdW = size.width / 3f
+                        val thirdH = size.height / 3f
+                        repeat(2) { index ->
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.18f),
+                                start = Offset(thirdW * (index + 1), 0f),
+                                end = Offset(thirdW * (index + 1), size.height),
+                                strokeWidth = 1f,
+                            )
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.18f),
+                                start = Offset(0f, thirdH * (index + 1)),
+                                end = Offset(size.width, thirdH * (index + 1)),
+                                strokeWidth = 1f,
+                            )
+                        }
+                    }
+
+                    val orangeColor = if (isDark) Color(0xFFFF9F0A) else Color(0xFFFF9500)
+                    val blueColor = if (isDark) Color(0xFF32ADE6) else Color(0xFF0A84FF)
+
+                    drawPath(
+                        path = polygon,
+                        color = orangeColor.copy(alpha = 0.4f),
+                    )
+                    drawPath(
+                        path = polygon,
+                        color = orangeColor,
+                        style = Stroke(width = 2.5f),
+                    )
+
+                    val roundRadius = draft.cornerRadiusPx * imageScale
+                    drawRoundRect(
+                        color = blueColor.copy(alpha = 0.15f),
+                        topLeft = Offset(geometry.visibleBounds.left * imageScale, geometry.visibleBounds.top * imageScale),
+                        size = Size(geometry.visibleBounds.width * imageScale, geometry.visibleBounds.height * imageScale),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(roundRadius, roundRadius),
+                        style = Fill,
+                    )
+                    drawRoundRect(
+                        color = blueColor,
+                        topLeft = Offset(geometry.visibleBounds.left * imageScale, geometry.visibleBounds.top * imageScale),
+                        size = Size(geometry.visibleBounds.width * imageScale, geometry.visibleBounds.height * imageScale),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(roundRadius, roundRadius),
+                        style = Stroke(width = 2f),
+                    )
                 }
-
-                val orangeColor = if (isDark) Color(0xFFFF9F0A) else Color(0xFFFF9500)
-                val blueColor = if (isDark) Color(0xFF32ADE6) else Color(0xFF0A84FF)
-                
-                drawPath(
-                    path = polygon,
-                    color = orangeColor.copy(alpha = 0.4f),
-                )
-                drawPath(
-                    path = polygon,
-                    color = orangeColor,
-                    style = Stroke(width = 2.5f),
-                )
-
-                val roundRadius = draft.cornerRadiusPx * imageScale
-                drawRoundRect(
-                    color = blueColor.copy(alpha = 0.15f),
-                    topLeft = Offset(geometry.visibleBounds.left * imageScale, geometry.visibleBounds.top * imageScale),
-                    size = Size(geometry.visibleBounds.width * imageScale, geometry.visibleBounds.height * imageScale),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(roundRadius, roundRadius),
-                    style = Fill,
-                )
-                drawRoundRect(
-                    color = blueColor,
-                    topLeft = Offset(geometry.visibleBounds.left * imageScale, geometry.visibleBounds.top * imageScale),
-                    size = Size(geometry.visibleBounds.width * imageScale, geometry.visibleBounds.height * imageScale),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(roundRadius, roundRadius),
-                    style = Stroke(width = 2f),
-                )
             }
         }
 
-        if (magnifierState.visible && sourceImage != null) {
-            val popupY = with(density) { 60.dp.toPx() }
-            val topMarginPx = with(density) { 12.dp.toPx() }
-            val popupHalfPx = with(density) { 72.dp.toPx() }
-            val belowOffsetPx = with(density) { 24.dp.toPx() }
-            val desiredAbove = magnifierState.fingerY - popupY
-            val popupOffset = if (desiredAbove < topMarginPx) {
-                IntOffset(
-                    x = (magnifierState.fingerX - popupHalfPx).roundToInt(),
-                    y = (magnifierState.fingerY + belowOffsetPx).roundToInt(),
-                )
-            } else {
-                IntOffset(
-                    x = (magnifierState.fingerX - popupHalfPx).roundToInt(),
-                    y = (desiredAbove - popupHalfPx).roundToInt(),
-                )
-            }
-            Popup(offset = popupOffset) {
-                CalibrationMagnifier(
-                    sourceImage = sourceImage,
-                    draft = draft,
-                    focusX = magnifierState.focusX,
-                    focusY = magnifierState.focusY,
-                )
-            }
-        }
+        // 移除放大镜功能，因为已经移除了定点拖拽功能
     }
 }
 

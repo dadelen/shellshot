@@ -1,6 +1,7 @@
 package com.example.shellshot.media
 
 import android.content.ContentResolver
+import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -35,6 +36,20 @@ class BitmapLoader(
         decodeBitmap(
             source = ImageDecoder.createSource(File(absolutePath)),
             sourceDescription = absolutePath,
+            targetWidth = targetWidth,
+            targetHeight = targetHeight,
+        )
+    }
+
+    suspend fun loadBitmap(
+        resources: Resources,
+        resId: Int,
+        targetWidth: Int,
+        targetHeight: Int,
+    ): Bitmap = withContext(Dispatchers.IO) {
+        decodeBitmap(
+            source = ImageDecoder.createSource(resources, resId),
+            sourceDescription = "resId=$resId",
             targetWidth = targetWidth,
             targetHeight = targetHeight,
         )

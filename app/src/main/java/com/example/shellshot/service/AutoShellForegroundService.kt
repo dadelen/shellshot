@@ -10,6 +10,7 @@ import android.os.FileObserver
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
@@ -54,6 +55,9 @@ class AutoShellForegroundService : LifecycleService() {
     private var startupJob: Job? = null
     private var resumeRecoveryJob: Job? = null
     private var observationWatchdogJob: Job? = null
+    private var heartbeatJob: Job? = null
+    private var periodicFixedDirectoryScanJob: Job? = null
+    private val fixedDirectoryProbeJobs = mutableMapOf<String, Job>()
     private var foregroundAppMonitorJob: Job? = null
     private var screenStateMonitor: ScreenStateMonitor? = null
     private var startupRecoveryCompleted = false
@@ -92,9 +96,11 @@ class AutoShellForegroundService : LifecycleService() {
 
             setExplicitStopRequested(true, "用户主动点击停止监听")
             cancelScheduledRestart("user_stop")
+            cancelSupervisorAlarm("user_stop")
             runBlocking {
                 appContainer.appPrefs.updateMonitoringEnabled(false)
             }
+            MonitoringHeartbeatStore.clear(applicationContext)
             appContainer.appStateStore.setMode(AutoShellMode.USER_STOPPED, "用户主动停止监听")
             stopMonitoring("user_stop")
             return START_NOT_STICKY
@@ -111,10 +117,13 @@ class AutoShellForegroundService : LifecycleService() {
         setExplicitStopRequested(false, "服务启动")
         ensureForeground()
         ensureRuntime("start_command")
+        startHeartbeatIfNeeded()
+        scheduleSupervisorAlarm("start_command")
         appContainer.appStateStore.setMonitoringActive(true)
         appContainer.appStateStore.setMonitoringPhase(MonitoringPhase.Starting)
         startEnvironmentMonitoring()
         startObservationWatchdogIfNeeded()
+        startPeriodicFixedDirectoryScanIfNeeded()
         startQueueWorkerIfNeeded()
         requestModeEvaluation("start_command")
         return START_STICKY
@@ -168,6 +177,14 @@ class AutoShellForegroundService : LifecycleService() {
         resumeRecoveryJob = null
         cancelJob(observationWatchdogJob, "observationWatchdogJob", reason)
         observationWatchdogJob = null
+        cancelJob(heartbeatJob, "heartbeatJob", reason)
+        heartbeatJob = null
+        cancelJob(periodicFixedDirectoryScanJob, "periodicFixedDirectoryScanJob", reason)
+        periodicFixedDirectoryScanJob = null
+        fixedDirectoryProbeJobs.forEach { (key, job) ->
+            cancelJob(job, "fixedDirectoryProbeJob:$key", reason)
+        }
+        fixedDirectoryProbeJobs.clear()
         cancelJob(workerJob, "workerJob", reason)
         workerJob = null
         cancelJob(foregroundAppMonitorJob, "foregroundAppMonitorJob", reason)
@@ -216,6 +233,19 @@ class AutoShellForegroundService : LifecycleService() {
     private fun stopEnvironmentMonitoring() {
         screenStateMonitor?.stop()
         screenStateMonitor = null
+    }
+
+    private fun startHeartbeatIfNeeded() {
+        if (heartbeatJob?.isActive == true) {
+            return
+        }
+
+        heartbeatJob = ensureRuntime("monitoring_heartbeat").launch {
+            while (isActive) {
+                MonitoringHeartbeatStore.write(applicationContext, SystemClock.elapsedRealtime())
+                delay(HEARTBEAT_INTERVAL_MILLIS)
+            }
+        }
     }
 
     private fun startForegroundAppMonitorIfNeeded() {
@@ -284,6 +314,36 @@ class AutoShellForegroundService : LifecycleService() {
                 }.onFailure { throwable ->
                     appContainer.logger.e(TAG, "watchdog 自检失败，监听链未完成校验", throwable)
                 }
+            }
+        }
+    }
+
+    private fun startPeriodicFixedDirectoryScanIfNeeded() {
+        if (periodicFixedDirectoryScanJob?.isActive == true) {
+            return
+        }
+
+        periodicFixedDirectoryScanJob = ensureRuntime("periodic_fixed_directory_scan").launch {
+            while (isActive) {
+                if (!canCaptureCandidates()) {
+                    delay(PERIODIC_SCAN_SUSPENDED_INTERVAL_MILLIS)
+                    continue
+                }
+
+                val runtimeState = appContainer.appStateStore.runtimeState.value
+                scanRecentFixedDirectoryFiles(
+                    source = "periodic_scan",
+                    limit = PERIODIC_SCAN_LIMIT,
+                    recentWindowMillis = PERIODIC_SCAN_WINDOW_MILLIS,
+                    minLastModifiedMillis = null,
+                )
+                delay(
+                    if (runtimeState.mode == AutoShellMode.ACTIVE) {
+                        PERIODIC_SCAN_ACTIVE_INTERVAL_MILLIS
+                    } else {
+                        PERIODIC_SCAN_SUSPENDED_INTERVAL_MILLIS
+                    },
+                )
             }
         }
     }
@@ -370,7 +430,7 @@ class AutoShellForegroundService : LifecycleService() {
                 AutoShellMode.SUSPEND_GAME,
                 -> {
                     appContainer.appStateStore.setMonitoringActive(true)
-                    stopObservationChain("suspend:$targetMode:$reason")
+                    restoreObservationChain("suspend_keep_observing:$targetMode:$reason")
                     appContainer.appStateStore.setMonitoringPhase(MonitoringPhase.Monitoring)
                 }
 
@@ -419,7 +479,8 @@ class AutoShellForegroundService : LifecycleService() {
 
     private fun verifyObservationChain(reason: String) {
         val runtimeState = appContainer.appStateStore.runtimeState.value
-        if (runtimeState.mode != AutoShellMode.ACTIVE) {
+        val monitoringEnabled = appContainer.appPrefs.cachedSettings().monitoringEnabled
+        if (!monitoringEnabled || runtimeState.mode == AutoShellMode.USER_STOPPED) {
             return
         }
 
@@ -450,7 +511,7 @@ class AutoShellForegroundService : LifecycleService() {
         }
         val shouldForceRebind = watcherMissing ||
             idleSinceRestore >= OBSERVATION_FORCE_REBIND_INTERVAL_MILLIS ||
-            idleSinceEvent >= OBSERVATION_FORCE_REBIND_IDLE_INTERVAL_MILLIS
+            (lastDirectoryEventElapsedRealtime > 0L && idleSinceEvent >= OBSERVATION_FORCE_REBIND_IDLE_INTERVAL_MILLIS)
 
         if (!shouldForceRebind) {
             return
@@ -468,25 +529,11 @@ class AutoShellForegroundService : LifecycleService() {
         lastObservationRestoreElapsedRealtime = now
 
         ensureRuntime("watchdog_probe").launch {
-            val recentFiles = ScreenshotDirectories.recentScreenshotFiles(
-                screenshotRelativePath = screenshotRelativePath,
+            scanRecentFixedDirectoryFiles(
+                source = "watchdog_probe",
                 limit = WATCHDOG_PROBE_CANDIDATE_LIMIT,
                 recentWindowMillis = WATCHDOG_PROBE_WINDOW_MILLIS,
             )
-            recentFiles.forEach { file ->
-                val result = appContainer.queuedTaskStore.enqueueDetected(
-                    absolutePath = file.absolutePath,
-                    displayName = file.name,
-                    relativePath = ScreenshotDirectories.relativePathFromAbsolutePath(file.absolutePath),
-                    changedUri = null,
-                    source = "watchdog_probe",
-                )
-                if (result.accepted) {
-                    appContainer.logger.d(TAG, "watchdog 探测命中并入队 path=${file.absolutePath}")
-                } else {
-                    appContainer.logger.d(TAG, "watchdog 探测跳过 reason=${result.reason} path=${file.absolutePath}")
-                }
-            }
         }
     }
 
@@ -526,7 +573,7 @@ class AutoShellForegroundService : LifecycleService() {
     }
 
     private fun registerMediaStoreFallbackIfNeeded() {
-        val settings = runBlocking { appContainer.appPrefs.currentSettings() }
+        val settings = appContainer.appPrefs.cachedSettings()
         val shouldEnableFallback = settings.mediaStoreFallbackEnabled &&
             appContainer.permissionManager.canUseMediaStoreFallback()
 
@@ -549,29 +596,31 @@ class AutoShellForegroundService : LifecycleService() {
         mediaStoreObserver = ScreenshotContentObserver(
             handler = handler,
             debounceMillis = CONTENT_DEBOUNCE_MILLIS,
-            onContentChanged = { changedUri ->
-                if (appContainer.appStateStore.runtimeState.value.mode != AutoShellMode.ACTIVE) {
-                    appContainer.logger.d(TAG, "跳过媒体库兜底 reason=mode_not_active")
+            onContentChanged = { changedUris ->
+                if (!canCaptureCandidates()) {
+                    appContainer.logger.d(TAG, "跳过媒体库兜底 reason=monitoring_not_enabled")
                     return@ScreenshotContentObserver
                 }
-                enqueueRecentMediaStoreCandidate("media_store_fallback", changedUri)
+                enqueueRecentMediaStoreCandidates("media_store_fallback", changedUris)
             },
         )
 
-        contentResolver.registerContentObserver(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            true,
-            checkNotNull(mediaStoreObserver),
-        )
+        appContainer.mediaStoreRepository.imageCollectionUris().forEach { collectionUri ->
+            contentResolver.registerContentObserver(
+                collectionUri,
+                true,
+                checkNotNull(mediaStoreObserver),
+            )
+        }
         appContainer.appStateStore.setMediaFallbackActive(true)
         appContainer.logger.d(TAG, "媒体库兜底监听已注册")
     }
 
     private fun onDirectoryEvent(event: DirectoryWatchEvent) {
-        if (appContainer.appStateStore.runtimeState.value.mode != AutoShellMode.ACTIVE) {
+        if (!canCaptureCandidates()) {
             appContainer.logger.d(
                 TAG,
-                "跳过文件事件 reason=mode_not_active mode=${appContainer.appStateStore.runtimeState.value.mode} path=${event.absolutePath}",
+                "跳过文件事件 reason=monitoring_not_enabled mode=${appContainer.appStateStore.runtimeState.value.mode} path=${event.absolutePath}",
             )
             return
         }
@@ -599,7 +648,19 @@ class AutoShellForegroundService : LifecycleService() {
             } else {
                 appContainer.logger.d(TAG, "跳过入队 reason=${result.reason} path=${event.absolutePath}")
             }
+            scheduleFixedDirectoryRecoveryProbe(
+                reason = "file_observer_burst",
+                jobKey = "file_observer_burst",
+                scheduleMillis = FIXED_DIRECTORY_EVENT_BURST_SCHEDULE_MILLIS,
+                requireActiveMode = false,
+            )
         }
+    }
+
+    private fun canCaptureCandidates(): Boolean {
+        val runtimeState = appContainer.appStateStore.runtimeState.value
+        return appContainer.appPrefs.cachedSettings().monitoringEnabled &&
+            runtimeState.mode != AutoShellMode.USER_STOPPED
     }
 
     private fun startQueueWorkerIfNeeded() {
@@ -614,10 +675,33 @@ class AutoShellForegroundService : LifecycleService() {
                     continue
                 }
 
-                val didWork = appContainer.queuedScreenshotWorker.runNextTask()
+                val didWork = runWorkerTaskWithWakeLock()
                 if (!didWork) {
                     delay(WORKER_IDLE_DELAY_MILLIS)
                 }
+            }
+        }
+    }
+
+    private suspend fun runWorkerTaskWithWakeLock(): Boolean {
+        if (appContainer.queuedTaskStore.peekNextProcessableTask() == null) {
+            return false
+        }
+
+        val powerManager = getSystemService(PowerManager::class.java)
+        val wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "$packageName:AutoShellCompose",
+        ).apply {
+            setReferenceCounted(false)
+        }
+
+        return try {
+            wakeLock.acquire(WORKER_WAKE_LOCK_TIMEOUT_MILLIS)
+            appContainer.queuedScreenshotWorker.runNextTask()
+        } finally {
+            if (wakeLock.isHeld) {
+                wakeLock.release()
             }
         }
     }
@@ -635,8 +719,8 @@ class AutoShellForegroundService : LifecycleService() {
             }
 
             delay(STARTUP_SCAN_DELAY_MILLIS)
-            if (appContainer.appStateStore.runtimeState.value.mode != AutoShellMode.ACTIVE) {
-                appContainer.logger.d(TAG, "启动恢复延后 reason=mode_not_active")
+            if (!canCaptureCandidates()) {
+                appContainer.logger.d(TAG, "启动恢复延后 reason=monitoring_not_enabled")
                 return@launch
             }
 
@@ -769,7 +853,25 @@ class AutoShellForegroundService : LifecycleService() {
         }
     }
 
-    private suspend fun enqueueRecentMediaStoreCandidate(reason: String, changedUri: Uri?) {
+    private suspend fun enqueueRecentMediaStoreCandidates(reason: String, changedUris: List<Uri?>) {
+        val urisToTry = changedUris.ifEmpty { listOf(null) }
+        var acceptedAny = false
+        urisToTry.take(MEDIASTORE_FALLBACK_URI_LIMIT).forEach { changedUri ->
+            val accepted = enqueueRecentMediaStoreCandidate(reason, changedUri)
+            acceptedAny = acceptedAny || accepted
+        }
+
+        if (!acceptedAny) {
+            scheduleFixedDirectoryRecoveryProbe(
+                reason = "${reason}_miss",
+                jobKey = "media_store_miss",
+                scheduleMillis = longArrayOf(FIXED_DIRECTORY_PROBE_DELAY_MILLIS),
+                requireActiveMode = false,
+            )
+        }
+    }
+
+    private suspend fun enqueueRecentMediaStoreCandidate(reason: String, changedUri: Uri?): Boolean {
         val screenshotRelativePath = currentScreenshotRelativePath()
         val candidates = appContainer.mediaStoreRepository.queryRecentImageCandidates(
             limit = MEDIASTORE_FALLBACK_LIMIT,
@@ -779,6 +881,7 @@ class AutoShellForegroundService : LifecycleService() {
             ScreenshotRules.isEligibleScreenshotCandidate(
                 candidate = screenshot,
                 screenshotRelativePath = screenshotRelativePath,
+                recentWindowMillis = MEDIASTORE_FALLBACK_RECENT_WINDOW_MILLIS,
             ) &&
                 ScreenshotDirectories.isScreenshotSource(
                     screenshot.absolutePath,
@@ -787,7 +890,7 @@ class AutoShellForegroundService : LifecycleService() {
                 )
         } ?: run {
             appContainer.logger.d(TAG, "媒体库兜底未发现截图 reason=$reason uri=$changedUri")
-            return
+            return false
         }
 
         val result = appContainer.queuedTaskStore.enqueueDetected(
@@ -802,10 +905,93 @@ class AutoShellForegroundService : LifecycleService() {
         } else {
             appContainer.logger.d(TAG, "跳过入队 reason=${result.reason} path=${candidate.absolutePath}")
         }
+        return result.accepted
+    }
+
+    private suspend fun scanRecentFixedDirectoryFiles(
+        source: String,
+        limit: Int,
+        recentWindowMillis: Long,
+        minLastModifiedMillis: Long? = null,
+        logPrefix: String = "固定目录扫描",
+    ) {
+        val screenshotRelativePath = currentScreenshotRelativePath()
+        val recentFiles = ScreenshotDirectories.recentScreenshotFiles(
+            screenshotRelativePath = screenshotRelativePath,
+            limit = limit,
+            recentWindowMillis = recentWindowMillis,
+            minLastModifiedMillis = minLastModifiedMillis,
+        )
+        appContainer.logger.d(
+            TAG,
+            "$logPrefix source=$source candidates=${recentFiles.size}",
+        )
+        recentFiles.forEach { file ->
+            val result = appContainer.queuedTaskStore.enqueueDetected(
+                absolutePath = file.absolutePath,
+                displayName = file.name,
+                relativePath = ScreenshotDirectories.relativePathFromAbsolutePath(file.absolutePath),
+                changedUri = null,
+                source = source,
+            )
+            if (result.accepted) {
+                appContainer.logger.d(TAG, "$logPrefix 入队 source=$source path=${file.absolutePath}")
+            } else {
+                appContainer.logger.d(TAG, "$logPrefix 跳过 reason=${result.reason} path=${file.absolutePath}")
+            }
+        }
+    }
+
+    private fun scheduleFixedDirectoryRecoveryProbe(
+        reason: String,
+        jobKey: String,
+        scheduleMillis: LongArray,
+        requireActiveMode: Boolean,
+    ) {
+        val existingJob = fixedDirectoryProbeJobs[jobKey]
+        if (existingJob?.isActive == true && jobKey == "file_observer_burst") {
+            return
+        }
+        existingJob?.cancel()
+        val job = ensureRuntime("fixed_directory_recovery_probe").launch {
+            val startedAtElapsedRealtime = SystemClock.elapsedRealtime()
+            scheduleMillis.forEachIndexed { index, targetOffsetMillis ->
+                val sleepMillis = remainingDelayMillis(
+                    startedAtElapsedRealtime = startedAtElapsedRealtime,
+                    targetOffsetMillis = targetOffsetMillis,
+                )
+                if (sleepMillis > 0L) {
+                    delay(sleepMillis)
+                }
+
+                if (!canCaptureCandidates()) {
+                    appContainer.logger.d(TAG, "固定目录补扫跳过 reason=monitoring_not_enabled source=$reason")
+                    return@launch
+                }
+                if (requireActiveMode && appContainer.appStateStore.runtimeState.value.mode != AutoShellMode.ACTIVE) {
+                    appContainer.logger.d(TAG, "固定目录补扫跳过 reason=mode_not_active source=$reason")
+                    return@launch
+                }
+
+                scanRecentFixedDirectoryFiles(
+                    source = reason,
+                    limit = FIXED_DIRECTORY_PROBE_LIMIT,
+                    recentWindowMillis = FIXED_DIRECTORY_PROBE_WINDOW_MILLIS,
+                    logPrefix = "固定目录补扫 round=${index + 1}",
+                )
+            }
+        }
+        fixedDirectoryProbeJobs[jobKey] = job
+        job.invokeOnCompletion {
+            if (fixedDirectoryProbeJobs[jobKey] == job) {
+                fixedDirectoryProbeJobs.remove(jobKey)
+            }
+        }
     }
 
     private fun stopMonitoring(reason: String) {
         appContainer.logger.d(TAG, "停止监听 reason=$reason ${diagnosticTrace("stopMonitoring reason=$reason")}")
+        cancelSupervisorAlarm(reason)
         cleanupRuntime("stop:$reason")
         if (foregroundStarted) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -815,7 +1001,7 @@ class AutoShellForegroundService : LifecycleService() {
     }
 
     private fun maybeRestartSelf(reason: String) {
-        val settings = runBlocking { appContainer.appPrefs.currentSettings() }
+        val settings = appContainer.appPrefs.cachedSettings()
         if (!settings.monitoringEnabled || !appContainer.permissionManager.hasCoreMonitoringPermissions()) {
             appContainer.logger.d(TAG, "跳过自恢复 reason=$reason")
             return
@@ -854,6 +1040,22 @@ class AutoShellForegroundService : LifecycleService() {
         appContainer.logger.d(TAG, "已安排服务自恢复 reason=$reason delay=${SELF_RESTART_DELAY_MILLIS}ms")
     }
 
+    private fun scheduleSupervisorAlarm(reason: String) {
+        val alarmManager = getSystemService(AlarmManager::class.java)
+        alarmManager.setAndAllowWhileIdle(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + SUPERVISOR_INTERVAL_MILLIS,
+            supervisorPendingIntent(),
+        )
+        appContainer.logger.d(TAG, "已安排监听心跳自检 reason=$reason delay=${SUPERVISOR_INTERVAL_MILLIS}ms")
+    }
+
+    private fun cancelSupervisorAlarm(reason: String) {
+        val alarmManager = getSystemService(AlarmManager::class.java)
+        alarmManager.cancel(supervisorPendingIntent())
+        appContainer.logger.d(TAG, "已取消监听心跳自检 reason=$reason")
+    }
+
     private fun cancelScheduledRestart(reason: String) {
         val alarmManager = getSystemService(AlarmManager::class.java)
         alarmManager.cancel(restartPendingIntent())
@@ -869,19 +1071,26 @@ class AutoShellForegroundService : LifecycleService() {
         )
     }
 
+    private fun supervisorPendingIntent(): PendingIntent {
+        return PendingIntent.getBroadcast(
+            this,
+            SUPERVISOR_REQUEST_CODE,
+            Intent(this, AutoShellRestartReceiver::class.java).apply {
+                action = ACTION_SUPERVISE
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
     private fun eventMaskLabel(mask: Int): String = buildList {
         if (mask and FileObserver.CREATE != 0) add("CREATE")
+        if (mask and FileObserver.MODIFY != 0) add("MODIFY")
         if (mask and FileObserver.CLOSE_WRITE != 0) add("CLOSE_WRITE")
         if (mask and FileObserver.MOVED_TO != 0) add("MOVED_TO")
     }.joinToString(separator = "|").ifBlank { mask.toString() }
 
-    private fun diagnosticTrace(reason: String): String = buildString {
-        append("reason=")
-        append(reason)
-        append(" thread=")
-        append(Thread.currentThread().name)
-        append('\n')
-        append(Throwable().stackTraceToString())
+    private fun diagnosticTrace(reason: String): String {
+        return "reason=$reason thread=${Thread.currentThread().name}"
     }
 
     private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -942,30 +1151,46 @@ class AutoShellForegroundService : LifecycleService() {
     companion object {
         const val ACTION_START = "com.example.shellshot.action.START_AUTO_SHELL"
         const val ACTION_STOP = "com.example.shellshot.action.STOP_AUTO_SHELL"
+        const val ACTION_SUPERVISE = "com.example.shellshot.action.SUPERVISE_AUTO_SHELL"
         const val EXTRA_TRUSTED_STOP = "com.example.shellshot.extra.TRUSTED_STOP"
 
         private const val CHANNEL_ID = "shellshot_auto_shell"
         private const val NOTIFICATION_ID = 42001
         private const val CONTENT_DEBOUNCE_MILLIS = 450L
         private const val STARTUP_SCAN_DELAY_MILLIS = 900L
-        private const val STARTUP_SCAN_WINDOW_MILLIS = 90_000L
+        private const val STARTUP_SCAN_WINDOW_MILLIS = 120_000L
         private const val STARTUP_SCAN_LIMIT = 5
-        private const val RESUME_SCAN_WINDOW_MILLIS = 30_000L
-        private const val RESUME_SCAN_CANDIDATE_LIMIT = 3
+        private const val RESUME_SCAN_WINDOW_MILLIS = 120_000L
+        private const val RESUME_SCAN_CANDIDATE_LIMIT = 5
         private const val RESUME_EDGE_LOOKBACK_MILLIS = 3_000L
         private const val RESUME_EARLY_STOP_FRESHNESS_MILLIS = 1_500L
         val RESUME_BURST_SCHEDULE_MILLIS = longArrayOf(0L, 200L, 600L, 1_200L)
-        private const val MEDIASTORE_FALLBACK_LIMIT = 3
+        private const val MEDIASTORE_FALLBACK_LIMIT = 15
+        private const val MEDIASTORE_FALLBACK_RECENT_WINDOW_MILLIS = 120_000L
+        private const val MEDIASTORE_FALLBACK_URI_LIMIT = 4
+        private const val FIXED_DIRECTORY_PROBE_DELAY_MILLIS = 650L
+        private const val FIXED_DIRECTORY_PROBE_WINDOW_MILLIS = 30_000L
+        private const val FIXED_DIRECTORY_PROBE_LIMIT = 5
+        private val FIXED_DIRECTORY_EVENT_BURST_SCHEDULE_MILLIS = longArrayOf(150L, 700L, 1_800L, 3_500L)
+        private const val PERIODIC_SCAN_ACTIVE_INTERVAL_MILLIS = 5_000L
+        private const val PERIODIC_SCAN_SUSPENDED_INTERVAL_MILLIS = 15_000L
+        private const val PERIODIC_SCAN_WINDOW_MILLIS = 30_000L
+        private const val PERIODIC_SCAN_LIMIT = 5
         private const val OBSERVATION_WATCHDOG_INTERVAL_MILLIS = 45_000L
-        private const val OBSERVATION_FORCE_REBIND_INTERVAL_MILLIS = 10 * 60_000L
-        private const val OBSERVATION_FORCE_REBIND_IDLE_INTERVAL_MILLIS = 5 * 60_000L
+        private const val OBSERVATION_FORCE_REBIND_INTERVAL_MILLIS = 6 * 60_000L
+        private const val OBSERVATION_FORCE_REBIND_IDLE_INTERVAL_MILLIS = 2 * 60_000L
         private const val WATCHDOG_PROBE_WINDOW_MILLIS = 90_000L
         private const val WATCHDOG_PROBE_CANDIDATE_LIMIT = 2
         private const val FOREGROUND_APP_POLL_MILLIS = 3_000L
         private const val WORKER_IDLE_DELAY_MILLIS = 350L
         private const val WORKER_SUSPENDED_DELAY_MILLIS = 1_000L
+        private const val WORKER_WAKE_LOCK_TIMEOUT_MILLIS = 20_000L
+        private const val HEARTBEAT_INTERVAL_MILLIS = 15_000L
+        const val HEARTBEAT_STALE_MILLIS = 45_000L
+        const val SUPERVISOR_INTERVAL_MILLIS = 30_000L
         private const val SELF_RESTART_DELAY_MILLIS = 1_200L
         private const val RESTART_REQUEST_CODE = 1003
+        const val SUPERVISOR_REQUEST_CODE = 1004
         private const val TAG = "AutoShellService"
     }
 
@@ -982,6 +1207,6 @@ class AutoShellForegroundService : LifecycleService() {
     }
 
     private fun currentScreenshotRelativePathBlocking(): String {
-        return runBlocking { currentScreenshotRelativePath() }
+        return appContainer.appPrefs.cachedSettings().screenshotRelativePath
     }
 }

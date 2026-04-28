@@ -34,6 +34,10 @@ class OutputRepository(
             error("Unable to create output directory: ${outputDirectory.absolutePath}")
         }
 
+        if (outputDirectory.usableSpace < 50_000_000L) {
+            error("Insufficient disk space. At least 50MB required to save output.")
+        }
+
         val outputFile = buildUniqueOutputFile(
             parentDirectory = outputDirectory,
             sourceDisplayName = sourceCandidate.displayName,

@@ -225,12 +225,6 @@ class QueuedScreenshotWorker(
             }
                 logger.d(TAG, "保存成功 output=${output.absolutePath}")
 
-            ScreenshotCandidate.buildProcessedPathKey(task.absolutePath)?.let { pathKey ->
-                appPrefs.addRecentProcessedKey(pathKey)
-            }
-            ScreenshotCandidate.buildProcessedPathKey(candidate.absolutePath)?.let { pathKey ->
-                appPrefs.addRecentProcessedKey(pathKey)
-            }
             appPrefs.addRecentProcessedKey(candidate.dedupeKey)
             taskStore.rememberSuccessfulCandidate(task, candidate)
             val deleteResult = deleteOriginalIfNeeded(
@@ -358,10 +352,11 @@ class QueuedScreenshotWorker(
                 )
 
             else ->
-                finalFailure(
+                retryableFailure(
                     message = "截图文件已不可用",
                     basis = "compose_candidate_missing source=${resolution.source} reason=${resolution.reason}",
-                    phase = MonitoringPhase.ComposeFailed,
+                    queueState = RetryQueueState.FailedRetryable,
+                    exhaustedPhase = MonitoringPhase.ComposeFailed,
                     statusOnPublish = ProcessingStatus.Failed,
                 )
         }
@@ -656,8 +651,6 @@ class QueuedScreenshotWorker(
         }
 
         return listOfNotNull(
-            ScreenshotCandidate.buildProcessedPathKey(task.absolutePath),
-            ScreenshotCandidate.buildProcessedPathKey(candidate.absolutePath),
             candidate.dedupeKey,
         ).any { it in recentProcessedKeys }
     }
@@ -799,7 +792,17 @@ class QueuedScreenshotWorker(
     private companion object {
         const val TAG = "QueueWorker"
         const val SUSPENDED_WAIT_DELAY_MILLIS = 200L
-        const val MAX_RETRYABLE_ATTEMPTS = 8
-        val RETRYABLE_BACKOFF_MILLIS = longArrayOf(200L, 500L, 1_000L, 2_000L, 4_000L, 4_000L, 4_000L)
+        const val MAX_RETRYABLE_ATTEMPTS = 10
+        val RETRYABLE_BACKOFF_MILLIS = longArrayOf(
+            500L,
+            1_000L,
+            2_000L,
+            4_000L,
+            8_000L,
+            10_000L,
+            10_000L,
+            10_000L,
+            10_000L,
+        )
     }
 }

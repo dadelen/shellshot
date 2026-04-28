@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
+import com.example.shellshot.ui.theme.MotionConstants
 
 fun Modifier.noRippleClick(
     onClick: () -> Unit,
@@ -30,12 +31,12 @@ fun Modifier.noRippleClick(
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,
-        animationSpec = spring(stiffness = 600f, dampingRatio = 0.7f),
+        animationSpec = MotionConstants.pressSpring,
         label = "press-scale",
     )
     val alpha by animateFloatAsState(
         targetValue = if (pressed) pressedAlpha else 1f,
-        animationSpec = spring(stiffness = 600f, dampingRatio = 0.7f),
+        animationSpec = MotionConstants.pressSpring,
         label = "press-alpha",
     )
     
@@ -62,12 +63,12 @@ fun Modifier.pressScaleEffect(
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,
-        animationSpec = spring(stiffness = 500f, dampingRatio = 0.85f),
+        animationSpec = MotionConstants.pressSpring,
         label = "press-scale",
     )
     val alpha by animateFloatAsState(
         targetValue = if (pressed) pressedAlpha else 1f,
-        animationSpec = spring(stiffness = 500f, dampingRatio = 0.85f),
+        animationSpec = MotionConstants.pressSpring,
         label = "press-alpha",
     )
     return this

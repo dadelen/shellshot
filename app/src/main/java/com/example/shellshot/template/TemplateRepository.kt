@@ -34,6 +34,7 @@ class TemplateRepository(
     }
     private val templateImportPipeline = TemplateImportPipeline()
     private val templateAssetSaver = TemplateAssetSaver(json)
+    private val templatePreviewRenderer = TemplatePreviewRenderer()
     private val deviceCaptureProfileProvider = DeviceCaptureProfileProvider(context)
     private var cachedTemplates: List<ShellTemplate>? = null
 
@@ -257,6 +258,7 @@ class TemplateRepository(
                     if (config.templateVersion < ShellTemplate.CURRENT_TEMPLATE_VERSION) {
                         throw IllegalStateException("模板版本过旧，需要重新导入模板")
                     }
+                    regenerateUserTemplatePreviewIfNeeded(config, directory, configFile)
                     ShellTemplate.fromConfig(
                         config = config,
                         isBuiltIn = false,
@@ -440,6 +442,7 @@ class TemplateRepository(
             val frameBaseFile = File(targetDirectory, "frameBase.png")
             val topHoleOverlayFile = File(targetDirectory, "topHoleOverlay.png")
             val previewFile = File(targetDirectory, "preview.png")
+            val sourcePreviewFile = File(targetDirectory, "source_preview.${File(draft.sourceImagePath).extension.ifBlank { "png" }}")
             val maskFile = File(targetDirectory, "screen_mask.png")
             val configFile = File(targetDirectory, USER_TEMPLATE_CONFIG_NAME)
 
@@ -453,6 +456,11 @@ class TemplateRepository(
                     "无法保存模板基础外框"
                 }
             }
+            File(draft.sourceImagePath).inputStream().use { input ->
+                sourcePreviewFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
             val topHoleOverlayAsset = processedTemplate.topHoleOverlayBitmap?.let { overlay ->
                 topHoleOverlayFile.outputStream().use { output ->
                     check(overlay.compress(Bitmap.CompressFormat.PNG, 100, output)) {
@@ -461,10 +469,26 @@ class TemplateRepository(
                 }
                 topHoleOverlayFile.absolutePath
             }
-            previewFile.outputStream().use { output ->
-                check(processedTemplate.frameBitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
-                    "无法保存模板预览"
+            val previewGeometry = CalibratedTemplateGeometry(
+                calibrationCorners = emptyList(),
+                visibleBounds = finalRect,
+                screenRect = finalRect,
+                contentClipRect = finalContentClipRect,
+                safeTopBand = derivedGeometry.safeTopBand,
+                topSuppressionRect = derivedGeometry.topSuppressionRect,
+                topHoleOverlayRect = derivedGeometry.topHoleOverlayRect,
+                topFeatureAvoidRect = derivedGeometry.topFeatureAvoidRect,
+                templateTopFeature = topFeature,
+            )
+            val previewBitmap = templatePreviewRenderer.renderPreview(processedTemplate.frameBitmap, previewGeometry)
+            try {
+                previewFile.outputStream().use { output ->
+                    check(previewBitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                        "无法保存模板预览"
+                    }
                 }
+            } finally {
+                if (!previewBitmap.isRecycled) previewBitmap.recycle()
             }
             maskFile.outputStream().use { output ->
                 check(finalMask.compress(Bitmap.CompressFormat.PNG, 100, output)) {
@@ -480,6 +504,7 @@ class TemplateRepository(
                 frameBaseAsset = frameBaseFile.absolutePath,
                 topHoleOverlayAsset = topHoleOverlayAsset,
                 previewAsset = previewFile.absolutePath,
+                sourcePreviewAsset = sourcePreviewFile.absolutePath,
                 logicalWidth = draft.outputWidth,
                 logicalHeight = draft.outputHeight,
                 outputWidth = draft.outputWidth,
@@ -679,6 +704,46 @@ class TemplateRepository(
             }
         }
         return checkNotNull(bitmap) { "无法解码模板图片: $path" }
+    }
+
+    private fun regenerateUserTemplatePreviewIfNeeded(
+        config: TemplateConfig,
+        directory: File,
+        configFile: File,
+    ) {
+        val previewPath = config.previewAsset.ifBlank { File(directory, "preview.png").absolutePath }
+        val previewFile = File(previewPath)
+        val geometry = CalibratedTemplateGeometry(
+            calibrationCorners = config.calibration?.calibrationCorners.orEmpty(),
+            visibleBounds = config.calibration?.visibleBounds ?: config.visibleBounds ?: config.screenRect,
+            screenRect = config.calibration?.screenBounds ?: config.visibleBounds ?: config.screenRect,
+            contentClipRect = config.calibration?.contentClipRect ?: config.contentClipRect ?: config.screenRect,
+            safeTopBand = config.safeTopBand,
+            topSuppressionRect = config.topSuppressionRect,
+            topHoleOverlayRect = config.topHoleOverlayRect,
+            topFeatureAvoidRect = config.topFeatureAvoidRect,
+            templateTopFeature = config.templateTopFeature,
+        )
+        val frameBitmap = decodeBitmapPath(config.frameAsset)
+        val previewBitmap = templatePreviewRenderer.renderPreview(frameBitmap, geometry)
+        try {
+            previewFile.parentFile?.mkdirs()
+            previewFile.outputStream().use { output ->
+                check(previewBitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                    "无法刷新模板预览"
+                }
+            }
+            if (config.previewAsset != previewFile.absolutePath) {
+                configFile.writeText(
+                    json.encodeToString(
+                        config.copy(previewAsset = previewFile.absolutePath),
+                    ),
+                )
+            }
+        } finally {
+            if (!frameBitmap.isRecycled) frameBitmap.recycle()
+            if (!previewBitmap.isRecycled) previewBitmap.recycle()
+        }
     }
 
     private fun detectScreenOpening(frameBitmap: Bitmap): DetectionResult {

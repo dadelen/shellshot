@@ -9,9 +9,16 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.shellshot.ShellShotApplication
 import com.example.shellshot.media.ScreenshotDirectories
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.runBlocking
 
 private val Context.dataStore by preferencesDataStore(name = "shellshot_prefs")
 private val defaultGamePackageRules = listOf(
@@ -87,6 +94,21 @@ class AppPrefs(
             recentProcessedKeys = decodeProcessedKeys(preferences[Keys.RecentProcessedKeys]),
             gamePackageRules = decodeGamePackageRules(preferences[Keys.GamePackageRules]),
         )
+    }
+
+    private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val cachedSettingsRef = AtomicReference<AppSettings?>(null)
+
+    init {
+        settingsFlow.onEach { cachedSettingsRef.set(it) }.launchIn(cacheScope)
+    }
+
+    /**
+     * Returns the latest settings snapshot without suspending.
+     * Falls back to a blocking read only if the cache hasn't been populated yet (extremely rare cold-start edge case).
+     */
+    fun cachedSettings(): AppSettings {
+        return cachedSettingsRef.get() ?: runBlocking { settingsFlow.first() }.also { cachedSettingsRef.set(it) }
     }
 
     suspend fun currentSettings(): AppSettings = settingsFlow.first()

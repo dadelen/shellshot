@@ -26,7 +26,7 @@ class MediaStoreRepository(
             }
         }
 
-        collectionUris().forEach { collectionUri ->
+        imageCollectionUris().forEach { collectionUri ->
             queryImagesFromCollection(collectionUri, limit).forEach { candidate ->
                 candidates.putIfAbsent(candidate.absolutePath, candidate)
             }
@@ -40,7 +40,7 @@ class MediaStoreRepository(
 
     suspend fun queryImageByUri(uri: Uri): ScreenshotCandidate? = withContext(Dispatchers.IO) {
         val id = runCatching { ContentUris.parseId(uri) }.getOrNull() ?: return@withContext null
-        collectionUris().asSequence()
+        imageCollectionUris().asSequence()
             .mapNotNull { collectionUri ->
                 val queryArgs = Bundle().apply {
                     putString(ContentResolver.QUERY_ARG_SQL_SELECTION, "${MediaStore.Images.Media._ID} = ?")
@@ -107,7 +107,7 @@ class MediaStoreRepository(
         )
     }
 
-    private fun collectionUris(): List<Uri> {
+    fun imageCollectionUris(): List<Uri> {
         return listOf(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL),

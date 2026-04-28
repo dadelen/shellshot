@@ -18,8 +18,7 @@ class ScreenshotDirectoryWatcher(
     private val logger: ShellLogger,
     private val onEvent: (DirectoryWatchEvent) -> Unit,
 ) {
-    @Suppress("DEPRECATION")
-    private val observer = object : FileObserver(directory.absolutePath, WATCH_MASK) {
+    private val observer = object : FileObserver(directory, WATCH_MASK) {
         override fun onEvent(event: Int, path: String?) {
             val fileName = path?.takeIf { it.isNotBlank() } ?: return
             if (!ScreenshotDirectories.looksLikeImageFile(fileName)) {
@@ -47,11 +46,12 @@ class ScreenshotDirectoryWatcher(
 
     companion object {
         private const val WATCH_MASK =
-            FileObserver.CREATE or FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO
+            FileObserver.CREATE or FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO or FileObserver.MODIFY
         private const val TAG = "ScreenshotWatcher"
 
         private fun eventMaskLabel(mask: Int): String = buildList {
             if (mask and FileObserver.CREATE != 0) add("CREATE")
+            if (mask and FileObserver.MODIFY != 0) add("MODIFY")
             if (mask and FileObserver.CLOSE_WRITE != 0) add("CLOSE_WRITE")
             if (mask and FileObserver.MOVED_TO != 0) add("MOVED_TO")
         }.joinToString(separator = "|").ifBlank { mask.toString() }

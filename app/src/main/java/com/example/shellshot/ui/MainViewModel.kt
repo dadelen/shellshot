@@ -9,9 +9,12 @@ import com.example.shellshot.data.AppContainer
 import com.example.shellshot.data.OutputNamingStrategy
 import com.example.shellshot.data.PermissionSnapshot
 import com.example.shellshot.data.ThemeOverride
+import com.example.shellshot.media.ScreenshotDirectories
 import com.example.shellshot.template.CalibrationCornerId
 import com.example.shellshot.template.ShellTemplate
 import com.example.shellshot.template.TemplateImportDraft
+import java.io.File
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +46,8 @@ class MainViewModel(
     private val templateImportPreparingState = MutableStateFlow(false)
     private val templateCarouselAnchorIdState = MutableStateFlow<String?>(null)
     private val templateConfettiTokenState = MutableStateFlow(0L)
+    private val calibrationSampleScreenshotState = MutableStateFlow<android.graphics.Bitmap?>(null)
+    private val latestOutputPreviewPathState = MutableStateFlow<String?>(null)
     private val recommendedDirectoriesState =
         MutableStateFlow(emptyList<com.example.shellshot.media.ScreenshotDirectoryRecommendation>())
     private val detectingDirectoriesState = MutableStateFlow(false)
@@ -109,6 +114,10 @@ class MainViewModel(
         state.copy(templateCarouselAnchorId = anchorId)
     }.combine(templateConfettiTokenState) { state, confettiToken ->
         state.copy(templateConfettiToken = confettiToken)
+    }.combine(calibrationSampleScreenshotState) { state, sample ->
+        state.copy(calibrationSampleScreenshot = sample)
+    }.combine(latestOutputPreviewPathState) { state, latestOutputPreviewPath ->
+        state.copy(latestOutputPreviewPath = latestOutputPreviewPath)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -118,12 +127,14 @@ class MainViewModel(
     init {
         reloadTemplates()
         refreshPermissionSnapshot()
+        refreshLatestOutputPreview()
         ensureInitialScreenshotDirectoryRecommendations()
     }
 
     fun onAppVisible(context: Context) {
         deviceCaptureProfileState.value = appContainer.templateRepository.currentDeviceCaptureProfile()
         refreshPermissionSnapshot()
+        refreshLatestOutputPreview()
         restoreMonitoringIfNeeded(context)
     }
 
@@ -247,6 +258,7 @@ class MainViewModel(
                 } else {
                     templateImportDraftState.value = draft
                     templateImportAlertState.value = null
+                    loadCalibrationSampleScreenshot()
                 }
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) throw throwable
@@ -315,6 +327,7 @@ class MainViewModel(
     fun cancelTemplateImport() {
         templateImportDraftState.value = null
         templateImportPreparingState.value = false
+        calibrationSampleScreenshotState.value = null
     }
 
     fun confirmTemplateImport() {
@@ -339,6 +352,7 @@ class MainViewModel(
         templateImportDraftState.value = draft.copy(templateName = trimmedName)
         templateImportInProgressState.value = true
         viewModelScope.launch {
+            var shouldCelebrate = false
             try {
                 val result = appContainer.templateRepository.importPreparedTemplateDraft(
                     draft.copy(templateName = trimmedName),
@@ -346,10 +360,10 @@ class MainViewModel(
                 if (result.success && result.templateId != null) {
                     templateImportDraftState.value = null
                     templateImportAlertState.value = null
-                    reloadTemplates(preferredTemplateId = result.templateId)
-                    appContainer.appPrefs.updateSelectedTemplate(result.templateId)
+                    refreshTemplatesAndSelect(preferredTemplateId = result.templateId)
                     templateCarouselAnchorIdState.value = result.templateId
-                    templateConfettiTokenState.value = System.currentTimeMillis()
+                    calibrationSampleScreenshotState.value = null
+                    shouldCelebrate = true
                 } else {
                     templateImportAlertState.value = TemplateImportAlert(
                         title = "模板生成失败",
@@ -358,6 +372,10 @@ class MainViewModel(
                 }
             } finally {
                 templateImportInProgressState.value = false
+                if (shouldCelebrate) {
+                    delay(360)
+                    templateConfettiTokenState.value = System.currentTimeMillis()
+                }
             }
         }
     }
@@ -446,6 +464,23 @@ class MainViewModel(
         }
     }
 
+    private fun refreshLatestOutputPreview() {
+        viewModelScope.launch {
+            latestOutputPreviewPathState.value = resolveLatestOutputPreviewPath()
+        }
+    }
+
+    private fun resolveLatestOutputPreviewPath(): String? {
+        val outputDirectory = ScreenshotDirectories.outputDirectory()
+        if (!outputDirectory.exists() || !outputDirectory.isDirectory) return null
+        return outputDirectory
+            .listFiles()
+            ?.asSequence()
+            ?.filter { file -> file.isFile && ScreenshotDirectories.looksLikeImageFile(file.name) }
+            ?.maxByOrNull(File::lastModified)
+            ?.absolutePath
+    }
+
     private fun performScreenshotDirectoryRecommendationsRefresh(markInitialized: Boolean) {
         refreshDirectoriesJob?.cancel()
         refreshDirectoriesJob = viewModelScope.launch {
@@ -470,21 +505,26 @@ class MainViewModel(
 
     private fun reloadTemplates(preferredTemplateId: String? = null) {
         viewModelScope.launch {
-            val templates = appContainer.templateRepository.refreshTemplates()
-            templatesState.value = templates
-
-            val settings = appContainer.appPrefs.currentSettings()
-            val templateToSelect = when {
-                preferredTemplateId != null && templates.any { it.id == preferredTemplateId } -> preferredTemplateId
-                settings.selectedTemplateId.isNotBlank() && templates.any { it.id == settings.selectedTemplateId } ->
-                    settings.selectedTemplateId
-                templates.isNotEmpty() -> templates.first().id
-                else -> null
-            }
-            if (templateToSelect != null) {
-                appContainer.appPrefs.updateSelectedTemplate(templateToSelect)
-            }
+            refreshTemplatesAndSelect(preferredTemplateId)
         }
+    }
+
+    private suspend fun refreshTemplatesAndSelect(preferredTemplateId: String? = null): List<ShellTemplate> {
+        val templates = appContainer.templateRepository.refreshTemplates()
+        templatesState.value = templates
+
+        val settings = appContainer.appPrefs.currentSettings()
+        val templateToSelect = when {
+            preferredTemplateId != null && templates.any { it.id == preferredTemplateId } -> preferredTemplateId
+            settings.selectedTemplateId.isNotBlank() && templates.any { it.id == settings.selectedTemplateId } ->
+                settings.selectedTemplateId
+            templates.isNotEmpty() -> templates.first().id
+            else -> null
+        }
+        if (templateToSelect != null) {
+            appContainer.appPrefs.updateSelectedTemplate(templateToSelect)
+        }
+        return templates
     }
 
     private fun restoreMonitoringIfNeeded(context: Context) {
@@ -505,9 +545,9 @@ class MainViewModel(
         val source = message.orEmpty()
         return when {
             source.contains("未识别到透明屏幕区") ->
-                "没有识别到透明屏幕区域。请上传带透明屏幕开口的手机壳图片后再试。"
+                "没有识别到透明屏幕区域，请重试。"
             source.contains("透明区域过小") ->
-                "识别到的透明屏幕区域太小。请换一张屏幕开口更完整的手机壳图片。"
+                "识别到的透明屏幕区域太小，请重试。"
             source.contains("保底") || source.contains("未识别到") ->
                 "这张图片没有通过模板校验。请上传边框清晰、屏幕开口完整的手机壳图片。"
             source.contains("无法读取所选图片") ->
@@ -520,6 +560,25 @@ class MainViewModel(
                 "模板处理失败，请换一张带清晰透明屏幕区域的图片再试。"
             source.isNotBlank() -> source
             else -> "这张图片暂时无法生成模板，请更换符合要求的手机壳图片后重试。"
+        }
+    }
+    private fun loadCalibrationSampleScreenshot() {
+        viewModelScope.launch {
+            try {
+                val captureProfile = deviceCaptureProfileState.value
+                val targetWidth = captureProfile.captureWidth
+                val targetHeight = captureProfile.captureHeight
+                
+                val bitmap = appContainer.bitmapLoader.loadBitmap(
+                    resources = appContainer.appContext.resources,
+                    resId = com.example.shellshot.R.drawable.calibration_sample,
+                    targetWidth = targetWidth,
+                    targetHeight = targetHeight,
+                )
+                calibrationSampleScreenshotState.value = bitmap
+            } catch (e: Exception) {
+                appContainer.logger.e("MainViewModel", "加载标定预览样本失败", e)
+            }
         }
     }
 }
