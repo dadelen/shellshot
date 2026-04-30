@@ -64,6 +64,11 @@ object MotionConstants {
         stiffness = Spring.StiffnessLow,
     )
 
+    val cardExpandSpring = spring<Float>(
+        dampingRatio = 0.8f,
+        stiffness = Spring.StiffnessMedium
+    )
+
     val sheetSpringDp = spring<Dp>(
         dampingRatio = 0.9f,
         stiffness = Spring.StiffnessLow,

@@ -3,6 +3,12 @@ package com.example.shellshot.ui.screen
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -36,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +55,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.asImageBitmap
@@ -77,6 +85,7 @@ import com.example.shellshot.ui.components.AppIcon
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.PremiumLoadingAnimation
 import com.example.shellshot.ui.components.noRippleClick
+import com.example.shellshot.ui.theme.MotionConstants
 import com.example.shellshot.ui.theme.ShellColors
 import kotlin.math.hypot
 import kotlin.math.max
@@ -84,6 +93,8 @@ import kotlin.math.roundToInt
 
 private val CalibrationSaveButtonColor = Color(0xFF0A84FF)
 private const val TemplateNameMaxLength = 9
+private const val CalibrationPreviewFitScale = 0.9f
+private const val CalibrationPreviewBleedPx = 3f
 
 @Composable
 fun TemplateCalibrationPage(
@@ -104,6 +115,20 @@ fun TemplateCalibrationPage(
     val sourceImage = remember(sourceBitmap) { sourceBitmap?.asImageBitmap() }
     val sampleImage = remember(sampleScreenshot) { sampleScreenshot?.asImageBitmap() }
     val geometry = remember(draft) { TemplateCalibrationEngine.buildGeometry(draft, forSave = false) }
+    var pageVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        pageVisible = true
+    }
+    val contentScale by animateFloatAsState(
+        targetValue = if (pageVisible) 1f else 0.985f,
+        animationSpec = MotionConstants.sheetSpring,
+        label = "calibration-page-scale",
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (pageVisible) 1f else 0f,
+        animationSpec = tween(MotionConstants.SettleMs, easing = MotionConstants.iosEaseOut),
+        label = "calibration-page-alpha",
+    )
 
     Box(
         modifier = Modifier
@@ -115,6 +140,11 @@ fun TemplateCalibrationPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer {
+                    alpha = contentAlpha
+                    scaleX = contentScale
+                    scaleY = contentScale
+                }
                 .padding(horizontal = 18.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -140,8 +170,8 @@ fun TemplateCalibrationPage(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(28.dp))
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(32.dp))
                     .padding(12.dp),
             ) {
                 TemplateCalibrationPreview(
@@ -158,7 +188,7 @@ fun TemplateCalibrationPage(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(24.dp))
+                    .background(ShellColors.surfaceHigh(isDark), RoundedCornerShape(32.dp))
                     .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -214,7 +244,11 @@ fun TemplateCalibrationPage(
             }
         }
 
-        if (inProgress) {
+        AnimatedVisibility(
+            visible = inProgress,
+            enter = fadeIn(tween(MotionConstants.OverlayMs, easing = MotionConstants.iosEaseInOut)),
+            exit = fadeOut(tween(MotionConstants.QuickMs, easing = MotionConstants.iosEaseInOut)),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -229,26 +263,35 @@ fun TemplateCalibrationPage(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = 280.dp)
-                        .background(
-                            color = if (isDark) Color(0xFF17181C) else Color(0xFFFCFCFD),
-                            shape = RoundedCornerShape(30.dp),
-                        )
-                        .border(
-                            1.dp,
-                            if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.78f),
-                            RoundedCornerShape(30.dp),
-                        )
-                        .padding(horizontal = 28.dp, vertical = 28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                AnimatedVisibility(
+                    visible = inProgress,
+                    enter = fadeIn(tween(MotionConstants.SettleMs, easing = MotionConstants.iosEaseOut)) +
+                        scaleIn(
+                            initialScale = 0.96f,
+                            animationSpec = tween(MotionConstants.SettleMs, easing = MotionConstants.iosEaseOut),
+                        ),
                 ) {
-                    PremiumLoadingAnimation(
-                        isDark = isDark,
-                        message = "正在保存模板",
-                    )
+                    Column(
+                        modifier = Modifier
+                            .widthIn(max = 280.dp)
+                            .background(
+                                color = if (isDark) Color(0xFF17181C) else Color(0xFFFCFCFD),
+                                shape = RoundedCornerShape(32.dp),
+                            )
+                            .border(
+                                1.dp,
+                                if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.78f),
+                                RoundedCornerShape(32.dp),
+                            )
+                            .padding(horizontal = 28.dp, vertical = 28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        PremiumLoadingAnimation(
+                            isDark = isDark,
+                            message = "正在保存模板",
+                        )
+                    }
                 }
             }
         }
@@ -276,8 +319,8 @@ private fun SimpleTextField(
         ),
         modifier = modifier
             .fillMaxWidth()
-            .background(ShellColors.glassSurface(isDark), RoundedCornerShape(18.dp))
-            .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(18.dp))
+            .background(ShellColors.glassSurface(isDark), RoundedCornerShape(20.dp))
+            .border(1.dp, ShellColors.separator(isDark), RoundedCornerShape(20.dp))
             .padding(horizontal = 18.dp, vertical = 16.dp),
         decorationBox = { innerTextField ->
             Box(
@@ -415,10 +458,10 @@ private fun TemplateCalibrationPreview(
 ) {
     val density = LocalDensity.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val imageScale = minOf(
+        val imageScale = (minOf(
             constraints.maxWidth / draft.outputWidth.toFloat(),
             constraints.maxHeight / draft.outputHeight.toFloat(),
-        ).coerceAtLeast(0.01f)
+        ) * CalibrationPreviewFitScale).coerceAtLeast(0.01f)
         val displayWidth = draft.outputWidth * imageScale
         val displayHeight = draft.outputHeight * imageScale
         Box(
@@ -512,7 +555,7 @@ private fun TemplateCalibrationPreview(
                                     (ordered[CalibrationCornerId.BOTTOM_RIGHT]?.y ?: rect.bottom.toFloat()) * imageScale,
                                     (ordered[CalibrationCornerId.BOTTOM_LEFT]?.x ?: 0f) * imageScale,
                                     (ordered[CalibrationCornerId.BOTTOM_LEFT]?.y ?: rect.bottom.toFloat()) * imageScale,
-                                )
+                                ).expandFromCenter(CalibrationPreviewBleedPx * imageScale)
                                 matrix.setPolyToPoly(src, 0, dst, 0, 4)
                                 nativeCanvas.save()
                                 nativeCanvas.clipPath(polygonPath.asAndroidPath())
@@ -749,6 +792,25 @@ private fun CalibrationMagnifier(
                 radius = 4.dp.toPx(),
                 center = Offset(size.width / 2f, size.height / 2f),
             )
+        }
+    }
+}
+
+private fun FloatArray.expandFromCenter(bleedPx: Float): FloatArray {
+    if (size < 8 || bleedPx <= 0f) return this
+    val centerX = (this[0] + this[2] + this[4] + this[6]) / 4f
+    val centerY = (this[1] + this[3] + this[5] + this[7]) / 4f
+    return FloatArray(size) { index ->
+        if (index % 2 == 0) {
+            val dx = this[index] - centerX
+            val dy = this[index + 1] - centerY
+            val length = hypot(dx, dy).coerceAtLeast(0.001f)
+            this[index] + dx / length * bleedPx
+        } else {
+            val dx = this[index - 1] - centerX
+            val dy = this[index] - centerY
+            val length = hypot(dx, dy).coerceAtLeast(0.001f)
+            this[index] + dy / length * bleedPx
         }
     }
 }

@@ -55,6 +55,7 @@ data class MainUiState(
     val recommendedScreenshotDirectories: List<ScreenshotDirectoryRecommendation> = emptyList(),
     val detectingScreenshotDirectories: Boolean = false,
     val logs: List<LogEntry> = emptyList(),
+    val processingHistory: List<ProcessingResult> = emptyList(),
     val templateSelectingId: String? = null,
     val activeTab: AppTab = AppTab.Home,
     val themeOverride: ThemeOverride = ThemeOverride.System,

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,17 +21,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import com.example.shellshot.data.ThemeOverride
 import com.example.shellshot.ui.MainUiState
 import com.example.shellshot.ui.components.AppIconId
 import com.example.shellshot.ui.components.GlassSurfaceCard
@@ -56,17 +51,15 @@ fun SettingsTabScreen(
     onToggleAutoDelete: (Boolean) -> Unit,
     onToggleMediaStoreFallback: (Boolean) -> Unit,
     onToggleDebugMode: (Boolean) -> Unit,
-    onSetThemeOverride: (ThemeOverride) -> Unit,
 ) {
     val colors = MaterialTheme.shellShotTokens.colors
-    var showThemePicker by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         StaggeredReveal(0) {
             Text(
@@ -81,10 +74,10 @@ fun SettingsTabScreen(
             GlassSurfaceCard(
                 modifier = Modifier.fillMaxWidth(),
                 isDark = isDark,
-                cornerRadius = 40,
-                padding = 28,
+                cornerRadius = 32,
+                padding = 24,
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         IconPlate(
                             icon = AppIconId.Edit,
@@ -96,8 +89,8 @@ fun SettingsTabScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(colors.subtleFill, RoundedCornerShape(24.dp))
-                            .padding(horizontal = 18.dp, vertical = 24.dp),
+                            .background(colors.subtleFill, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 18.dp, vertical = 20.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -131,12 +124,12 @@ fun SettingsTabScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(colors.subtleFill, RoundedCornerShape(24.dp))
+                            .background(colors.subtleFill, RoundedCornerShape(20.dp))
                             .padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         if (uiState.recommendedScreenshotDirectories.isEmpty()) {
-                            Text("暂无推荐目录", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                            Text("", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
                         } else {
                             uiState.recommendedScreenshotDirectories.take(3).forEach { recommendation ->
                                 Text(recommendation.relativePath, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
@@ -160,23 +153,10 @@ fun SettingsTabScreen(
                 )
                 SettingsDivider(isDark)
                 SettingsRow(
-                    icon = AppIconId.Settings,
-                    tint = ShellColors.AccentBlue,
-                    background = ShellColors.AccentBlue.copy(alpha = if (isDark) 0.18f else 0.12f),
-                    label = "主题策略",
-                    value = when (uiState.themeOverride) {
-                        ThemeOverride.System -> "跟随系统"
-                        ThemeOverride.Light -> "浅色"
-                        ThemeOverride.Dark -> "深色"
-                    },
-                    onClick = { showThemePicker = true },
-                )
-                SettingsDivider(isDark)
-                SettingsRow(
                     icon = AppIconId.Folder,
                     tint = ShellColors.AccentAmber,
                     background = ShellColors.AccentAmber.copy(alpha = if (isDark) 0.18f else 0.12f),
-                    label = "所有文件访问",
+                    label = "文件访问",
                     value = if (uiState.permissionSnapshot.allFilesGranted) "已开启" else "去开启",
                     onClick = onOpenManageAllFilesSettings,
                 )
@@ -216,7 +196,7 @@ fun SettingsTabScreen(
                     icon = AppIconId.Delete,
                     tint = ShellColors.AccentRed,
                     background = ShellColors.AccentRed.copy(alpha = if (isDark) 0.18f else 0.12f),
-                    label = "处理后删除原图",
+                    label = "删除原图",
                     checked = uiState.settings.autoDeleteOriginal,
                     onToggle = onToggleAutoDelete,
                 )
@@ -231,18 +211,7 @@ fun SettingsTabScreen(
                 )
             }
         }
-    }
-
-    if (showThemePicker) {
-        ThemeOverrideDialog(
-            isDark = isDark,
-            selected = uiState.themeOverride,
-            onSelect = {
-                onSetThemeOverride(it)
-                showThemePicker = false
-            },
-            onDismiss = { showThemePicker = false },
-        )
+        Spacer(modifier = Modifier.height(136.dp))
     }
 }
 
@@ -254,7 +223,7 @@ private fun SettingsGroupCard(
     GlassSurfaceCard(
         modifier = Modifier.fillMaxWidth(),
         isDark = isDark,
-        cornerRadius = 40,
+        cornerRadius = 32,
         padding = 8,
     ) {
         Column(content = content)
@@ -275,7 +244,7 @@ private fun SettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .noRippleClick(onClick)
-            .padding(horizontal = 24.dp, vertical = 14.dp),
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -307,7 +276,7 @@ private fun SettingsToggleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 14.dp),
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -328,44 +297,4 @@ private fun SettingsDivider(isDark: Boolean) {
             .height(1.dp)
             .background(ShellColors.separator(isDark)),
     )
-}
-
-@Composable
-private fun ThemeOverrideDialog(
-    isDark: Boolean,
-    selected: ThemeOverride,
-    onSelect: (ThemeOverride) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val colors = MaterialTheme.shellShotTokens.colors
-    Dialog(onDismissRequest = onDismiss) {
-        GlassSurfaceCard(
-            modifier = Modifier.fillMaxWidth(),
-            isDark = isDark,
-            cornerRadius = 32,
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("主题策略", fontSize = 22.sp, fontWeight = FontWeight.Black, color = colors.textPrimary)
-                ThemeOverride.entries.forEach { option ->
-                    val title = when (option) {
-                        ThemeOverride.System -> "跟随系统"
-                        ThemeOverride.Light -> "浅色"
-                        ThemeOverride.Dark -> "深色"
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (selected == option) ShellColors.AccentBlue.copy(alpha = 0.12f) else colors.subtleFill,
-                                RoundedCornerShape(18.dp),
-                            )
-                            .padding(horizontal = 16.dp, vertical = 14.dp)
-                            .noRippleClick { onSelect(option) },
-                    ) {
-                        Text(title, color = colors.textPrimary, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
 }

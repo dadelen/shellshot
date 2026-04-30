@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shellshot.ui.AppTab
+import com.example.shellshot.ui.theme.MotionConstants
 import com.example.shellshot.ui.theme.ShellColors
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -66,8 +67,8 @@ private val DockPillWidth = 68.dp
 private val DockSpacing = 4.dp
 private val DockHorizontalPadding = 6.dp
 private val DockVerticalPadding = 4.dp
-private val DockShape = RoundedCornerShape(percent = 50)
-private val DockPillShape = RoundedCornerShape(percent = 50)
+private val DockShape = RoundedCornerShape(28.dp)
+private val DockPillShape = RoundedCornerShape(22.dp)
 
 @Composable
 fun FloatingDock(
@@ -95,32 +96,32 @@ fun FloatingDock(
     val activeOffset by animateDpAsState(
         targetValue = (DockHorizontalPadding + (DockItemWidth + DockSpacing) * activeIndex) -
             ((DockPillWidth - DockItemWidth) / 2),
-        animationSpec = spring(stiffness = 340f, dampingRatio = 0.82f),
+        animationSpec = MotionConstants.dockSpringDp,
         label = "dock-active-offset",
     )
     val pillScaleX by animateFloatAsState(
         targetValue = if (stretchPill) 1.08f else 1f,
-        animationSpec = spring(stiffness = 320f, dampingRatio = 0.78f),
+        animationSpec = MotionConstants.dockSpring,
         label = "dock-pill-scale-x",
     )
     val pillScaleY by animateFloatAsState(
         targetValue = if (stretchPill) 0.96f else 1f,
-        animationSpec = spring(stiffness = 320f, dampingRatio = 0.82f),
+        animationSpec = MotionConstants.dockSpring,
         label = "dock-pill-scale-y",
     )
     val dockOffsetY by animateDpAsState(
         targetValue = if (detailMode) 150.dp else 0.dp,
-        animationSpec = spring(stiffness = 350f, dampingRatio = 0.85f),
+        animationSpec = MotionConstants.sheetSpringDp,
         label = "dock-y",
     )
     val dockScale by animateFloatAsState(
         targetValue = if (detailMode) 0.82f else 1f,
-        animationSpec = spring(stiffness = 350f, dampingRatio = 0.85f),
+        animationSpec = MotionConstants.sheetSpring,
         label = "dock-scale",
     )
     val dockAlpha by animateFloatAsState(
         targetValue = if (detailMode) 0f else 1f,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = MotionConstants.QuickMs, easing = MotionConstants.iosEaseInOut),
         label = "dock-alpha",
     )
 
@@ -133,20 +134,19 @@ fun FloatingDock(
     Box(
         modifier = modifier
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(bottom = 30.dp)
-            .graphicsLayer {
-                translationY = dockOffsetY.toPx()
-                scaleX = dockScale
-                scaleY = dockScale
-                alpha = dockAlpha
-            },
+            .padding(bottom = 30.dp),
         contentAlignment = Alignment.BottomCenter,
     ) {
         DockShell(
             isDark = isDark,
             hazeState = hazeState,
             width = shellWidth,
-            modifier = Modifier,
+            modifier = Modifier.graphicsLayer {
+                translationY = dockOffsetY.toPx()
+                scaleX = dockScale
+                scaleY = dockScale
+                alpha = dockAlpha
+            },
         ) {
             DockSelectionPill(
                 isDark = isDark,
@@ -171,6 +171,7 @@ fun FloatingDock(
                         item = item,
                         selected = item.tab == activeTab,
                         isDark = isDark,
+                        enabled = !detailMode && dockAlpha > 0.2f,
                         onClick = {
                             if (item.tab != activeTab) {
                                 haptics.dockTick()
@@ -197,33 +198,28 @@ private fun DockShell(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val shadowColor = if (isDark) {
-        Color.Black.copy(alpha = 0.32f)
-    } else {
-        Color(0xFFB6BCC7).copy(alpha = 0.18f)
-    }
     val shellBrush = Brush.verticalGradient(
         colors = if (isDark) {
             listOf(
-                Color(0xD92A2E35),
-                Color(0xCF1C2027),
+                Color(0xE62A2E35),
+                Color(0xE61C2027),
             )
         } else {
             listOf(
-                Color(0xEEF8F8F6),
-                Color(0xE7EEEDE9),
+                Color(0xF0F8F8F6),
+                Color(0xF0EEEDE9),
             )
         },
     )
     val shellStroke = if (isDark) {
-        Color.White.copy(alpha = 0.11f)
+        Color.White.copy(alpha = 0.15f)
     } else {
-        Color.White.copy(alpha = 0.68f)
+        Color.White.copy(alpha = 0.8f)
     }
     val innerFog = if (isDark) {
-        Color.White.copy(alpha = 0.035f)
+        Color.White.copy(alpha = 0.05f)
     } else {
-        Color.White.copy(alpha = 0.33f)
+        Color.White.copy(alpha = 0.4f)
     }
 
     Box(
@@ -232,19 +228,17 @@ private fun DockShell(
     ) {
         Box(
             modifier = Modifier
-                .width(width + 8.dp)
-                .height(DockShellHeight + 10.dp)
-                .blur(14.dp)
-                .background(shadowColor, DockShape),
-        )
-        Box(
-            modifier = Modifier
                 .width(width)
                 .height(DockShellHeight)
-                .hazeEffect(hazeState)
+                .graphicsLayer {
+                    shadowElevation = 8.dp.toPx()
+                    shape = DockShape
+                    clip = false
+                }
                 .clip(DockShape)
+                .hazeEffect(hazeState)
                 .background(shellBrush, DockShape)
-                .border(width = 0.8.dp, color = shellStroke, shape = DockShape),
+                .border(width = 1.5.dp, color = shellStroke, shape = DockShape),
         ) {
             Box(
                 modifier = Modifier
@@ -262,12 +256,12 @@ private fun DockShell(
                         Brush.verticalGradient(
                             colors = if (isDark) {
                                 listOf(
-                                    Color.White.copy(alpha = 0.06f),
+                                    Color.White.copy(alpha = 0.08f),
                                     Color.Transparent,
                                 )
                             } else {
                                 listOf(
-                                    Color.White.copy(alpha = 0.34f),
+                                    Color.White.copy(alpha = 0.4f),
                                     Color.Transparent,
                                 )
                             },
@@ -287,20 +281,20 @@ private fun DockSelectionPill(
     val pillBrush = Brush.verticalGradient(
         colors = if (isDark) {
             listOf(
-                Color.White.copy(alpha = 0.14f),
-                Color.White.copy(alpha = 0.055f),
+                Color.White.copy(alpha = 0.18f),
+                Color.White.copy(alpha = 0.08f),
             )
         } else {
             listOf(
-                Color.White.copy(alpha = 0.58f),
-                Color.White.copy(alpha = 0.22f),
+                Color.White.copy(alpha = 0.65f),
+                Color.White.copy(alpha = 0.3f),
             )
         },
     )
     val pillStroke = if (isDark) {
-        Color.White.copy(alpha = 0.12f)
+        Color.White.copy(alpha = 0.15f)
     } else {
-        Color.White.copy(alpha = 0.52f)
+        Color.White.copy(alpha = 0.6f)
     }
 
     Box(
@@ -310,7 +304,7 @@ private fun DockSelectionPill(
             .padding(vertical = 3.dp)
             .clip(DockPillShape)
             .background(pillBrush, DockPillShape)
-            .border(width = 0.7.dp, color = pillStroke, shape = DockPillShape),
+            .border(width = 1.dp, color = pillStroke, shape = DockPillShape),
     ) {
         Box(
             modifier = Modifier
@@ -321,15 +315,15 @@ private fun DockSelectionPill(
                     Brush.verticalGradient(
                         colors = if (isDark) {
                             listOf(
-                                Color.White.copy(alpha = 0.06f),
+                                Color.White.copy(alpha = 0.08f),
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.05f),
+                                Color.Black.copy(alpha = 0.06f),
                             )
                         } else {
                             listOf(
-                                Color.White.copy(alpha = 0.36f),
-                                Color.White.copy(alpha = 0.12f),
-                                Color(0xFFDDE4EF).copy(alpha = 0.08f),
+                                Color.White.copy(alpha = 0.42f),
+                                Color.White.copy(alpha = 0.15f),
+                                Color(0xFFDDE4EF).copy(alpha = 0.1f),
                             )
                         },
                     ),
@@ -343,26 +337,27 @@ private fun DockItemButton(
     item: DockItem,
     selected: Boolean,
     isDark: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     val iconTint by animateColorAsState(
         targetValue = if (selected) ShellColors.AccentBlue else if (isDark) Color(0xFF9AA1AC) else Color(0xFF6D7480),
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = MotionConstants.QuickMs, easing = MotionConstants.iosEaseOut),
         label = "dock-icon-tint-${item.tab}",
     )
     val iconOffset by animateDpAsState(
         targetValue = if (selected) (-5).dp else 0.dp,
-        animationSpec = spring(stiffness = 500f, dampingRatio = 0.86f),
+        animationSpec = MotionConstants.dockSpringDp,
         label = "dock-icon-offset-${item.tab}",
     )
     val labelOffset by animateDpAsState(
         targetValue = if (selected) 10.dp else 12.dp,
-        animationSpec = spring(stiffness = 460f, dampingRatio = 0.88f),
+        animationSpec = MotionConstants.dockSpringDp,
         label = "dock-label-offset-${item.tab}",
     )
     val labelScale by animateFloatAsState(
         targetValue = if (selected) 1f else 0.94f,
-        animationSpec = spring(stiffness = 460f, dampingRatio = 0.88f),
+        animationSpec = MotionConstants.dockSpring,
         label = "dock-label-scale-${item.tab}",
     )
 
@@ -370,7 +365,7 @@ private fun DockItemButton(
         modifier = Modifier
             .width(DockItemWidth)
             .fillMaxHeight()
-            .noRippleClick(onClick = onClick),
+            .noRippleClick(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -383,7 +378,7 @@ private fun DockItemButton(
                 contentDescription = item.label,
                 tint = iconTint,
                 modifier = Modifier
-                    .size(22.dp)
+                    .size(24.dp)
                     .offset(y = iconOffset),
             )
         }
@@ -398,9 +393,9 @@ private fun DockItemButton(
         ) {
             Text(
                 text = item.label,
-                fontSize = 10.sp,
-                lineHeight = 10.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.sp,
+                lineHeight = 11.sp,
+                fontWeight = FontWeight.Bold,
                 color = ShellColors.AccentBlue,
                 modifier = Modifier.graphicsLayer {
                     translationY = labelOffset.toPx()

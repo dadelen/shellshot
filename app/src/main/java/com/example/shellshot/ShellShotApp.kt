@@ -13,8 +13,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,6 +41,7 @@ import com.example.shellshot.ui.screen.HomeTabScreen
 import com.example.shellshot.ui.screen.LogsTabScreen
 import com.example.shellshot.ui.screen.SettingsTabScreen
 import com.example.shellshot.ui.screen.TemplatesTabScreen
+import com.example.shellshot.ui.theme.MotionConstants
 import dev.chrisbanes.haze.rememberHazeState
 import dev.chrisbanes.haze.hazeSource
 import com.example.shellshot.ui.components.AppIconId
@@ -142,12 +143,25 @@ fun ShellShotApp(
                 targetState = uiState.activeTab,
                 modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
-                    (fadeIn(animationSpec = tween(400)) +
-                        slideInVertically(initialOffsetY = { 15 }) +
-                        scaleIn(initialScale = 0.98f, animationSpec = tween(400))) togetherWith
-                        (fadeOut(animationSpec = tween(220)) +
-                            slideOutVertically(targetOffsetY = { -15 }) +
-                            scaleOut(targetScale = 0.98f, animationSpec = tween(220)))
+                    val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                    (fadeIn(animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut)) +
+                        slideInHorizontally(
+                            animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut),
+                            initialOffsetX = { direction * (it / 10) },
+                        ) +
+                        scaleIn(
+                            initialScale = 0.985f,
+                            animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut),
+                        )) togetherWith
+                        (fadeOut(animationSpec = tween(220, easing = MotionConstants.iosEaseInOut)) +
+                            slideOutHorizontally(
+                                animationSpec = tween(220, easing = MotionConstants.iosEaseInOut),
+                                targetOffsetX = { -direction * (it / 18) },
+                            ) +
+                            scaleOut(
+                                targetScale = 0.992f,
+                                animationSpec = tween(220, easing = MotionConstants.iosEaseInOut),
+                            ))
                 },
                 label = "app-tabs",
             ) { tab ->
@@ -227,8 +241,6 @@ private fun androidx.compose.animation.SharedTransitionScope.AppTabContent(
             hazeState = hazeState,
             onToggleThemeQuick = onToggleThemeQuick,
             onToggleMonitoring = onToggleMonitoring,
-            onOpenTemplates = onOpenTemplates,
-            onSelectTemplateAndOpen = onSelectTemplateAndOpen,
         )
 
         AppTab.Templates -> TemplatesTabScreen(
@@ -273,12 +285,12 @@ private fun androidx.compose.animation.SharedTransitionScope.AppTabContent(
             onToggleAutoDelete = viewModel::setAutoDeleteOriginal,
             onToggleMediaStoreFallback = viewModel::setMediaStoreFallbackEnabled,
             onToggleDebugMode = viewModel::setDebugModeEnabled,
-            onSetThemeOverride = viewModel::setThemeOverride,
         )
 
         AppTab.Logs -> LogsTabScreen(
             modifier = Modifier.fillMaxSize(),
             logs = uiState.logs,
+            processingHistory = uiState.processingHistory,
             isDark = uiState.resolvedDarkTheme,
             hazeState = hazeState,
         )

@@ -1,5 +1,6 @@
 package com.example.shellshot.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -26,6 +27,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.shellshot.ui.theme.ShellColors
+import com.example.shellshot.ui.theme.MotionConstants
 
 @Composable
 fun PremiumLoadingAnimation(
@@ -45,6 +47,24 @@ fun PremiumLoadingAnimation(
         ),
         label = "rotation"
     )
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(760, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse",
+    )
+    val sweep by infiniteTransition.animateFloat(
+        initialValue = 72f,
+        targetValue = 122f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(760, easing = MotionConstants.iosEaseInOut),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "sweep",
+    )
 
     Column(
         modifier = modifier,
@@ -57,7 +77,11 @@ fun PremiumLoadingAnimation(
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { rotationZ = rotation }
+                    .graphicsLayer {
+                        rotationZ = rotation
+                        scaleX = pulse
+                        scaleY = pulse
+                    }
             ) {
                 drawArc(
                     color = if (isDark) {
@@ -73,7 +97,7 @@ fun PremiumLoadingAnimation(
                 drawArc(
                     color = ShellColors.AccentBlue,
                     startAngle = -90f,
-                    sweepAngle = 96f,
+                    sweepAngle = sweep,
                     useCenter = false,
                     style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
                 )

@@ -35,21 +35,35 @@ fun ShellShotBackdrop(
                             Color.Transparent,
                             Color.Black.copy(alpha = 0.18f),
                         )
-                    } else {
-                        listOf(
-                            Color.White.copy(alpha = 0.74f),
-                            Color(0xFFF6F4F0).copy(alpha = 0.36f),
-                            Color(0xFFEDEAE4).copy(alpha = 0.20f),
-                        )
-                    },
-                ),
-                size = size,
-            )
+	                    } else {
+	                        listOf(
+	                            Color.White.copy(alpha = 0.78f),
+	                            Color(0xFFFAF8F3).copy(alpha = 0.34f),
+	                            Color(0xFFF2EEE5).copy(alpha = 0.16f),
+	                        )
+	                    },
+	                ),
+	                size = size,
+	            )
 
-            drawImage(
+	            if (!isDark) {
+	                drawRect(
+	                    brush = Brush.verticalGradient(
+	                        colors = listOf(
+	                            Color.Transparent,
+	                            Color(0xFF9B8A6F).copy(alpha = 0.035f),
+	                        ),
+	                        startY = size.height * 0.42f,
+	                        endY = size.height,
+	                    ),
+	                    size = size,
+	                )
+	            }
+
+	            drawImage(
                 image = noise,
                 dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                alpha = if (isDark) 0.022f else 0.012f,
+                alpha = if (isDark) 0.05f else 0.03f,
                 blendMode = BlendMode.Overlay,
             )
         }

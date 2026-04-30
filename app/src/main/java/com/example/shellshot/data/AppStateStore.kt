@@ -36,6 +36,7 @@ data class AppRuntimeState(
     val watchedDirectories: List<String> = emptyList(),
     val logs: List<LogEntry> = emptyList(),
     val lastProcessingResult: ProcessingResult? = null,
+    val processingHistory: List<ProcessingResult> = emptyList(),
 )
 
 class AppStateStore {
@@ -118,11 +119,15 @@ class AppStateStore {
 
     fun setLastProcessingResult(result: ProcessingResult) {
         _runtimeState.update { current ->
-            current.copy(lastProcessingResult = result)
+            current.copy(
+                lastProcessingResult = result,
+                processingHistory = (listOf(result) + current.processingHistory).take(MAX_PROCESSING_HISTORY_COUNT),
+            )
         }
     }
 
     companion object {
         private const val MAX_LOG_COUNT = 60
+        private const val MAX_PROCESSING_HISTORY_COUNT = 40
     }
 }

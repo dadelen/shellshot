@@ -40,6 +40,7 @@ class MainViewModel(
     private val templateSelectingIdState = MutableStateFlow<String?>(null)
     private val activeTabState = MutableStateFlow(AppTab.Home)
     private val systemDarkThemeState = MutableStateFlow(false)
+    private val quickDarkThemeOverrideState = MutableStateFlow<Boolean?>(null)
     private val templateOverviewVisibleState = MutableStateFlow(false)
     private val templateOverviewDetailIdState = MutableStateFlow<String?>(null)
     private val templatePendingDeleteIdState = MutableStateFlow<String?>(null)
@@ -79,6 +80,7 @@ class MainViewModel(
             templateImportDraft = templateImportDraft,
             lastProcessingResult = runtimeState.lastProcessingResult,
             logs = runtimeState.logs,
+            processingHistory = runtimeState.processingHistory,
             themeOverride = settings.themeOverride,
         )
     }.combine(deviceCaptureProfileState) { state, deviceCaptureProfile ->
@@ -96,11 +98,9 @@ class MainViewModel(
     }.combine(activeTabState) { state, activeTab ->
         state.copy(activeTab = activeTab)
     }.combine(systemDarkThemeState) { state, systemDarkTheme ->
-        val resolvedDarkTheme = when (state.settings.themeOverride) {
-            ThemeOverride.System -> systemDarkTheme
-            ThemeOverride.Light -> false
-            ThemeOverride.Dark -> true
-        }
+        state.copy(resolvedDarkTheme = systemDarkTheme)
+    }.combine(quickDarkThemeOverrideState) { state, quickDarkThemeOverride ->
+        val resolvedDarkTheme = quickDarkThemeOverride ?: state.resolvedDarkTheme
         state.copy(resolvedDarkTheme = resolvedDarkTheme)
     }.combine(templateOverviewVisibleState) { state, overviewVisible ->
         state.copy(templateOverviewVisible = overviewVisible)
@@ -125,6 +125,7 @@ class MainViewModel(
     )
 
     init {
+        setThemeOverride(ThemeOverride.System)
         reloadTemplates()
         refreshPermissionSnapshot()
         refreshLatestOutputPreview()
@@ -154,8 +155,7 @@ class MainViewModel(
     }
 
     fun toggleThemeQuick() {
-        val next = if (uiState.value.resolvedDarkTheme) ThemeOverride.Light else ThemeOverride.Dark
-        setThemeOverride(next)
+        quickDarkThemeOverrideState.value = !uiState.value.resolvedDarkTheme
     }
 
     fun openTemplateOverview() {
@@ -361,7 +361,10 @@ class MainViewModel(
                     templateImportDraftState.value = null
                     templateImportAlertState.value = null
                     refreshTemplatesAndSelect(preferredTemplateId = result.templateId)
+                    // 直接跳转到新模板，不使用弹性动画
                     templateCarouselAnchorIdState.value = result.templateId
+                    // 立即更新选中的模板
+                    appContainer.appPrefs.updateSelectedTemplate(result.templateId)
                     calibrationSampleScreenshotState.value = null
                     shouldCelebrate = true
                 } else {

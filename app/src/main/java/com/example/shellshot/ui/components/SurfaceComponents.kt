@@ -1,6 +1,8 @@
 package com.example.shellshot.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -36,15 +38,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shellshot.ui.theme.ShellColors
+import com.example.shellshot.ui.theme.MotionConstants
 import com.example.shellshot.ui.theme.shellShotTokens
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -54,7 +60,7 @@ fun GlassSurfaceCard(
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
     isDark: Boolean,
-    cornerRadius: Int = 40,
+    cornerRadius: Int = 32,
     padding: Int = 24,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -70,10 +76,10 @@ fun GlassSurfaceCard(
                 }
             )
             .background(
-                color = MaterialTheme.shellShotTokens.colors.surface.copy(alpha = if (hazeState != null) 0.82f else 1f),
+                color = MaterialTheme.shellShotTokens.colors.surface.copy(alpha = if (hazeState != null) 0.9f else 1f),
                 shape = shape,
             )
-            .border(1.dp, MaterialTheme.shellShotTokens.colors.glassStroke, shape)
+            .border(1.5.dp, MaterialTheme.shellShotTokens.colors.glassStroke, shape)
             .padding(padding.dp),
         content = content,
     )
@@ -204,10 +210,13 @@ fun StaggeredReveal(
         enter = fadeIn(animationSpec = tween(360, easing = FastOutSlowInEasing)) +
             slideInVertically(
                 initialOffsetY = { it / 5 },
-                animationSpec = tween(420, easing = FastOutSlowInEasing),
+                animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut),
             ),
-        exit = fadeOut(animationSpec = tween(180)) +
-            slideOutVertically(targetOffsetY = { -it / 6 }),
+        exit = fadeOut(animationSpec = tween(MotionConstants.QuickMs, easing = MotionConstants.iosEaseInOut)) +
+            slideOutVertically(
+                animationSpec = tween(MotionConstants.QuickMs, easing = MotionConstants.iosEaseInOut),
+                targetOffsetY = { -it / 8 },
+            ),
     ) {
         content()
     }
@@ -221,11 +230,9 @@ fun LiquidGlassSwitch(
 ) {
     val haptics = rememberShellShotHaptics()
     var isAnimating by remember { mutableStateOf(false) }
-    LaunchedEffect(isOn) {
-        isAnimating = true
-        kotlinx.coroutines.delay(150)
-        isAnimating = false
-    }
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val switchEase = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
+    val thumbSpring = spring<androidx.compose.ui.unit.Dp>(stiffness = 500f, dampingRatio = 0.86f)
     val xOffset by animateDpAsState(
         targetValue = when {
             isOn && isAnimating -> 0.dp
@@ -233,47 +240,64 @@ fun LiquidGlassSwitch(
             isAnimating -> 4.dp
             else -> 0.dp
         },
-        animationSpec = spring(stiffness = 500f, dampingRatio = 0.85f),
+        animationSpec = thumbSpring,
         label = "switch-x",
     )
-    val beadWidth by animateDpAsState(
+    val thumbWidth by animateDpAsState(
         targetValue = if (isAnimating) 36.dp else 26.dp,
-        animationSpec = spring(stiffness = 500f, dampingRatio = 0.85f),
-        label = "switch-width",
+        animationSpec = thumbSpring,
+        label = "switch-thumb-width",
     )
-    val beadHeight by animateDpAsState(
+    val thumbHeight by animateDpAsState(
         targetValue = if (isAnimating) 22.dp else 26.dp,
-        animationSpec = spring(stiffness = 500f, dampingRatio = 0.85f),
-        label = "switch-height",
+        animationSpec = thumbSpring,
+        label = "switch-thumb-height",
     )
-    val restAlpha by animateFloatAsState(
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isOn) ShellColors.AccentGreen else if (darkTheme) Color(0xFF262626) else Color(0xFFE5E5E5),
+        animationSpec = tween(500, easing = switchEase),
+        label = "switch-bg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isOn) {
+            Color.Transparent
+        } else if (darkTheme) {
+            Color.White.copy(alpha = 0.05f)
+        } else {
+            Color(0xFFD4D4D4).copy(alpha = 0.5f)
+        },
+        animationSpec = tween(500, easing = switchEase),
+        label = "switch-border",
+    )
+    val solidThumbAlpha by animateFloatAsState(
         targetValue = if (isAnimating) 0f else 1f,
         animationSpec = tween(150),
-        label = "switch-rest-alpha",
+        label = "switch-solid-thumb-alpha",
     )
-    val glassAlpha by animateFloatAsState(
+    val glassThumbAlpha by animateFloatAsState(
         targetValue = if (isAnimating) 1f else 0f,
         animationSpec = tween(150),
-        label = "switch-glass-alpha",
+        label = "switch-glass-thumb-alpha",
     )
+
+    LaunchedEffect(isAnimating) {
+        if (isAnimating) {
+            kotlinx.coroutines.delay(150)
+            isAnimating = false
+        }
+    }
 
     Box(
         modifier = modifier
             .size(width = 56.dp, height = 32.dp)
             .clip(CircleShape)
-            .background(
-                color = if (isOn) ShellColors.AccentGreen else Color(0xFFE5E7EB),
-                shape = CircleShape,
-            )
-            .border(
-                width = if (isOn) 0.dp else 1.dp,
-                color = Color.White.copy(alpha = 0.35f),
-                shape = CircleShape,
-            )
+            .background(backgroundColor, CircleShape)
+            .border(1.dp, borderColor, CircleShape)
             .padding(3.dp)
-            .noRippleClick {
+            .noRippleClick(pressedScale = 1f, pressedAlpha = 1f) {
                 val next = !isOn
                 haptics.toggle(next)
+                isAnimating = true
                 onToggle(next)
             },
     ) {
@@ -281,28 +305,66 @@ fun LiquidGlassSwitch(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset(x = xOffset)
-                .size(width = beadWidth, height = beadHeight)
+                .size(width = thumbWidth, height = thumbHeight)
+                .shadow(
+                    elevation = 8.dp,
+                    shape = CircleShape,
+                    ambientColor = Color.Black.copy(alpha = 0.15f),
+                    spotColor = Color.Black.copy(alpha = 0.15f),
+                )
                 .clip(CircleShape)
-                .background(Color.White)
-                .border(0.5.dp, Color.White.copy(alpha = 0.8f), CircleShape),
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White.copy(alpha = restAlpha), CircleShape),
+                    .alpha(solidThumbAlpha)
+                    .background(if (darkTheme) Color(0xFFF5F5F5) else Color.White, CircleShape),
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .alpha(glassThumbAlpha)
                     .background(
-                        Brush.verticalGradient(
+                        brush = Brush.verticalGradient(
                             colors = listOf(
-                                Color.White.copy(alpha = 0.9f * glassAlpha),
-                                Color.White.copy(alpha = 0.1f * glassAlpha),
+                                Color.White.copy(alpha = 0.9f),
+                                Color.White.copy(alpha = 0.4f),
+                                Color.White.copy(alpha = 0.1f),
                             ),
                         ),
-                    ),
-            )
+                        shape = CircleShape,
+                    )
+                    .border(0.5.dp, Color.White.copy(alpha = 0.8f), CircleShape),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .padding(horizontal = 6.dp)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.White.copy(alpha = 0.9f), Color.Transparent),
+                            ),
+                            shape = CircleShape,
+                        )
+                        .alpha(0.9f),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .padding(horizontal = 8.dp)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.4f)),
+                            ),
+                            shape = CircleShape,
+                        )
+                        .alpha(0.6f),
+                )
+            }
         }
     }
 }

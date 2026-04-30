@@ -27,6 +27,7 @@ import com.example.shellshot.template.TopFeatureType
 import com.example.shellshot.utils.ShellLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.hypot
 
 class ShellComposer(
     private val templateRepository: TemplateRepository,
@@ -36,7 +37,6 @@ class ShellComposer(
     private val coverRectSolver: CoverRectSolver = CoverRectSolver(),
     private val calibratedComposeResolver: CalibratedComposeResolver = CalibratedComposeResolver(),
 ) {
-
     suspend fun compose(
         sourceBitmap: Bitmap,
         frameBitmap: Bitmap,
@@ -215,7 +215,7 @@ class ShellComposer(
             quadCorners.first { it.id == com.example.shellshot.template.CalibrationCornerId.BOTTOM_RIGHT }.y * scaleY,
             quadCorners.first { it.id == com.example.shellshot.template.CalibrationCornerId.BOTTOM_LEFT }.x * scaleX,
             quadCorners.first { it.id == com.example.shellshot.template.CalibrationCornerId.BOTTOM_LEFT }.y * scaleY,
-        )
+        ).expandFromCenter(QUAD_CONTENT_BLEED_PX)
         if (!matrix.setPolyToPoly(src, 0, dst, 0, 4)) {
             canvas.drawBitmap(bitmap, null, drawRect, createBitmapPaint())
             return
@@ -245,6 +245,25 @@ class ShellComposer(
         path.lineTo(bottomRight.x * scaleX, bottomRight.y * scaleY)
         path.lineTo(bottomLeft.x * scaleX, bottomLeft.y * scaleY)
         path.close()
+    }
+
+    private fun FloatArray.expandFromCenter(bleedPx: Float): FloatArray {
+        if (size < 8 || bleedPx <= 0f) return this
+        val centerX = (this[0] + this[2] + this[4] + this[6]) / 4f
+        val centerY = (this[1] + this[3] + this[5] + this[7]) / 4f
+        return FloatArray(size) { index ->
+            if (index % 2 == 0) {
+                val dx = this[index] - centerX
+                val dy = this[index + 1] - centerY
+                val length = hypot(dx, dy).coerceAtLeast(0.001f)
+                this[index] + dx / length * bleedPx
+            } else {
+                val dx = this[index - 1] - centerX
+                val dy = this[index] - centerY
+                val length = hypot(dx, dy).coerceAtLeast(0.001f)
+                this[index] + dy / length * bleedPx
+            }
+        }
     }
 
     private fun resolveTopRenderMode(
@@ -524,6 +543,7 @@ class ShellComposer(
 
     private companion object {
         const val TAG = "ShellComposer"
+        const val QUAD_CONTENT_BLEED_PX = 3f
         const val SOURCE_TOP_FEATURE_MIN_CONFIDENCE = 0.62f
         const val SOURCE_TOP_FEATURE_MIN_CENTER_X_RATIO = 0.46f
         const val SOURCE_TOP_FEATURE_MAX_CENTER_X_RATIO = 0.54f
