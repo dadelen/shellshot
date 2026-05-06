@@ -34,6 +34,7 @@ object ScreenshotDirectories {
         "截图",
         "截圖",
     )
+    internal var externalRootProvider: () -> File = { Environment.getExternalStorageDirectory() }
 
     fun screenshotDirectory(configuredRelativePath: String): File {
         return toAbsoluteDirectory(resolveScreenshotRelativePath(configuredRelativePath))
@@ -147,7 +148,7 @@ object ScreenshotDirectories {
     fun isOutputAbsolutePath(absolutePath: String?): Boolean {
         val normalizedPath = normalizeAbsolutePath(absolutePath) ?: return false
         val outputRoot = normalizeAbsolutePath(outputDirectory().absolutePath) ?: return false
-        return normalizedPath.startsWith(outputRoot)
+        return isSameOrDescendantPath(normalizedPath, outputRoot)
     }
 
     fun isOutputLocation(
@@ -176,7 +177,7 @@ object ScreenshotDirectories {
     ): Boolean {
         val normalizedPath = normalizeAbsolutePath(absolutePath) ?: return false
         val screenshotRoot = normalizeAbsolutePath(screenshotDirectory(configuredRelativePath).absolutePath) ?: return false
-        return normalizedPath.startsWith(screenshotRoot)
+        return isSameOrDescendantPath(normalizedPath, screenshotRoot)
     }
 
     fun isScreenshotSource(
@@ -237,5 +238,10 @@ object ScreenshotDirectories {
         }
     }
 
-    private fun externalRoot(): File = Environment.getExternalStorageDirectory()
+    private fun isSameOrDescendantPath(path: String, directory: String): Boolean {
+        val normalizedDirectory = directory.removeSuffix("/")
+        return path == normalizedDirectory || path.startsWith("$normalizedDirectory/")
+    }
+
+    private fun externalRoot(): File = externalRootProvider()
 }

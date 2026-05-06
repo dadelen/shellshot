@@ -59,9 +59,14 @@ fun DeleteTemplateDialog(
         label = "delete-dialog-alpha",
     )
     val scale by animateFloatAsState(
-        targetValue = if (visible) 1f else 0.96f,
+        targetValue = if (visible) 1f else 0.988f,
         animationSpec = MotionConstants.sheetSpring,
         label = "delete-dialog-scale",
+    )
+    val offsetY by animateFloatAsState(
+        targetValue = if (visible) 0f else 28f,
+        animationSpec = MotionConstants.sheetSpring,
+        label = "delete-dialog-offset",
     )
     Dialog(onDismissRequest = onDismiss) {
         GlassSurfaceCard(
@@ -71,7 +76,7 @@ fun DeleteTemplateDialog(
                     this.alpha = alpha
                     scaleX = scale
                     scaleY = scale
-                    translationY = ((1f - scale) * 240f).dp.toPx()
+                    translationY = offsetY.dp.toPx()
                 },
             isDark = isDark,
             cornerRadius = 32,
@@ -159,9 +164,14 @@ fun SimpleMessageDialog(
         label = "message-dialog-alpha",
     )
     val scale by animateFloatAsState(
-        targetValue = if (visible) 1f else 0.96f,
+        targetValue = if (visible) 1f else 0.988f,
         animationSpec = MotionConstants.sheetSpring,
         label = "message-dialog-scale",
+    )
+    val offsetY by animateFloatAsState(
+        targetValue = if (visible) 0f else 28f,
+        animationSpec = MotionConstants.sheetSpring,
+        label = "message-dialog-offset",
     )
     Dialog(onDismissRequest = onDismiss) {
         GlassSurfaceCard(
@@ -171,7 +181,7 @@ fun SimpleMessageDialog(
                     this.alpha = alpha
                     scaleX = scale
                     scaleY = scale
-                    translationY = ((1f - scale) * 240f).dp.toPx()
+                    translationY = offsetY.dp.toPx()
                 },
             isDark = isDark,
             cornerRadius = 32,

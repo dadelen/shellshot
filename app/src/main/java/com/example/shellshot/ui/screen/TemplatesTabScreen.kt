@@ -10,8 +10,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -19,7 +17,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,7 +46,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -72,6 +68,12 @@ import com.example.shellshot.ui.components.StaggeredReveal
 import com.example.shellshot.ui.components.TemplatePreviewThumbnail
 import com.example.shellshot.ui.components.noRippleClick
 import com.example.shellshot.ui.components.rememberShellShotHaptics
+import com.example.shellshot.ui.designsystem.ioslike.IOSColors
+import com.example.shellshot.ui.designsystem.ioslike.IOSFlyInContainer
+import com.example.shellshot.ui.designsystem.ioslike.IOSLargeTitleTopBar
+import com.example.shellshot.ui.designsystem.ioslike.IOSPillIconButton
+import com.example.shellshot.ui.designsystem.ioslike.iosSheetFlyInEnter
+import com.example.shellshot.ui.designsystem.ioslike.iosSheetFlyOutExit
 import com.example.shellshot.ui.theme.MotionConstants
 import com.example.shellshot.ui.theme.ShellColors
 import com.example.shellshot.ui.theme.shellShotTokens
@@ -154,7 +156,7 @@ fun TemplatesTabScreen(
         if (targetIndex >= 0) {
             animatable.animateTo(
                 targetValue = nearestVirtualIndex(targetIndex, animatable.value, templates.size),
-                animationSpec = spring(stiffness = 210f, dampingRatio = 0.82f),
+                animationSpec = spring(stiffness = 340f, dampingRatio = 0.78f),
             )
         }
         onSetCarouselAnchor(null)
@@ -187,156 +189,149 @@ fun TemplatesTabScreen(
 
     Box(
         modifier = modifier
-            .fillMaxSize(),
+            .fillMaxSize()
+            .background(IOSColors.scheme(isDark).groupedBackground),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(top = 8.dp),
-        ) {
-            StaggeredReveal(index = 0, modifier = Modifier.zIndex(20f)) {
-                TemplatesHeader(
-                    count = templates.size,
-                    isDark = isDark,
-                    onAdd = onUploadTemplateImage,
-                    onOpenOverview = onOpenOverview,
-                )
-            }
-            if (templates.isEmpty()) {
-                EmptyTemplatesStage(
-                    isDark = isDark,
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .zIndex(0f)
-                        .offset(y = (-36).dp)
-                        .pointerInput(templates.map { it.id }) {
-                            detectHorizontalDragGestures(
-                                onDragStart = {
-                                    dragAccumulator = 0f
-                                    dragVelocityHint = 0f
-                                    dragStartIndex = animatable.value.roundToInt()
-                                },
-                                onHorizontalDrag = { change, dragAmount ->
-                                    if (templates.isNotEmpty()) {
-                                        change.consume()
-                                        val dragAmountDp = with(density) { dragAmount.toDp().value }
-                                        dragAccumulator += dragAmountDp
-                                        dragVelocityHint = dragAmountDp
-                                        // Keep the prototype trajectory, with only a slight extra damping.
-                                        val base = dragStartIndex.toFloat()
-                                        val elasticDeviation = (-(dragAccumulator) / 125f) * 0.22f
-                                        carouselScope.launch {
-                                            animatable.snapTo(base + elasticDeviation)
-                                        }
-                                    }
-                                },
-                                onDragEnd = {
-                                    carouselScope.launch {
-                                        val projectedDrag = dragAccumulator + (dragVelocityHint * 9f)
-                                        val threshold = 40f
-                                        val offset = if (projectedDrag < -threshold) 1
-                                                     else if (projectedDrag > threshold) -1
-                                                     else 0
-                                        val target = dragStartIndex + offset
-                                        animatable.animateTo(
-                                            targetValue = target.toFloat(),
-                                            animationSpec = spring(
-                                                stiffness = 210f,
-                                                dampingRatio = 0.82f,
-                                            ),
-                                        )
-                                        if (offset != 0) {
-                                            delay(70)
-                                            haptics.selection()
-                                        }
-                                    }
-                                },
-                            )
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
+        IOSFlyInContainer(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(top = 8.dp),
+            ) {
+                StaggeredReveal(index = 0, modifier = Modifier.zIndex(20f)) {
+                    TemplatesHeader(
+                        count = templates.size,
+                        isDark = isDark,
+                        onAdd = onUploadTemplateImage,
+                        onOpenOverview = onOpenOverview,
+                    )
+                }
+                if (templates.isEmpty()) {
+                    EmptyTemplatesStage(
+                        isDark = isDark,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .width(388.dp)
-                            .height(592.dp)
-                            .background(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(
-                                        ShellColors.AccentBlue.copy(alpha = if (isDark) 0.16f else 0.24f),
-                                        Color.White.copy(alpha = if (isDark) 0.04f else 0.10f),
-                                        Color.Transparent,
-                                    )
-                                )
-                            ),
-                    )
-                    val baseIndex = animatable.value.roundToInt()
-                    val carouselOffsets = when (templates.size) {
-                        1 -> listOf(0)
-                        2 -> listOf(0, 1)
-                        else -> (-2..2).toList()
-                    }
-                    carouselOffsets.forEach { offset ->
-                        val virtualIndex = baseIndex + offset
-                        val template = templates[dataIndexFor(virtualIndex)]
-                        val relativeOffset = when (templates.size) {
-                            1 -> 0f
-                            else -> virtualIndex - animatable.value
-                        }
-                        val isExiting = exitingTemplates.containsKey(template.id)
-                        androidx.compose.runtime.key("carousel-${template.id}-$virtualIndex") {
-	                            TemplateCarouselCard(
-	                                template = template,
-	                                selected = template.id == selectedTemplateId,
-	                                relativeOffset = relativeOffset,
-	                                isDark = isDark,
-	                                visible = !isExiting,
-	                                deleting = isExiting,
-	                                modifier = Modifier
-	                                    .align(Alignment.Center)
-	                                    .zIndex(if (isExiting) 100f else 50f - abs(relativeOffset)),
-                                onClick = {
-                                    val stepDistance = abs(relativeOffset.roundToInt())
-                                    if (stepDistance == 1) {
-                                        onSetCarouselAnchor(template.id)
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .zIndex(0f)
+                            .offset(y = (-36).dp)
+                            .pointerInput(templates.map { it.id }) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = {
+                                        dragAccumulator = 0f
+                                        dragVelocityHint = 0f
+                                        dragStartIndex = animatable.value.roundToInt()
                                         carouselScope.launch {
-                                            delay(70)
-                                            haptics.selection()
+                                            animatable.stop()
                                         }
-                                    }
-                                },
-                                onApply = { onSelectTemplate(template.id) },
-                                onDelete = { onRequestDeleteTemplate(template.id) },
-                            )
+                                    },
+                                    onHorizontalDrag = { change, dragAmount ->
+                                        if (templates.isNotEmpty()) {
+                                            change.consume()
+                                            val dragAmountDp = with(density) { dragAmount.toDp().value }
+                                            dragAccumulator += dragAmountDp
+                                            dragVelocityHint = dragAmountDp
+                                            val base = dragStartIndex.toFloat()
+                                            val dragProgress = (-(dragAccumulator) / 132f).coerceIn(-0.48f, 0.48f)
+                                            carouselScope.launch {
+                                                animatable.snapTo(base + dragProgress)
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        carouselScope.launch {
+                                            val projectedDrag = dragAccumulator + (dragVelocityHint * 8f)
+                                            val threshold = 48f
+                                            val offset = if (projectedDrag < -threshold) 1
+                                                else if (projectedDrag > threshold) -1
+                                                else 0
+                                            val target = dragStartIndex + offset
+                                            animatable.animateTo(
+                                                targetValue = target.toFloat(),
+                                                animationSpec = spring(
+                                                    stiffness = 340f,
+                                                    dampingRatio = 0.78f,
+                                                ),
+                                            )
+                                            if (offset != 0) {
+                                                delay(55)
+                                                haptics.selection()
+                                            }
+                                        }
+                                    },
+                                )
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .width(408.dp)
+                                .height(616.dp)
+                                .background(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            ShellColors.AccentBlue.copy(alpha = if (isDark) 0.18f else 0.22f),
+                                            Color.White.copy(alpha = if (isDark) 0.06f else 0.12f),
+                                            Color.Transparent,
+                                        )
+                                    )
+                                ),
+                        )
+                        val baseIndex = animatable.value.roundToInt()
+                        val carouselOffsets = when (templates.size) {
+                            1 -> listOf(0)
+                            2 -> listOf(0, 1)
+                            else -> (-2..2).toList()
+                        }
+                        carouselOffsets.forEach { offset ->
+                            val virtualIndex = baseIndex + offset
+                            val template = templates[dataIndexFor(virtualIndex)]
+                            val relativeOffset = when (templates.size) {
+                                1 -> 0f
+                                else -> virtualIndex - animatable.value
+                            }
+                            val isExiting = exitingTemplates.containsKey(template.id)
+                            androidx.compose.runtime.key("carousel-${template.id}-$virtualIndex") {
+                                TemplateCarouselCard(
+                                    template = template,
+                                    selected = template.id == selectedTemplateId,
+                                    relativeOffset = relativeOffset,
+                                    isDark = isDark,
+                                    visible = !isExiting,
+                                    deleting = isExiting,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .zIndex(if (isExiting) 100f else 50f - abs(relativeOffset)),
+                                    onClick = {
+                                        val stepDistance = abs(relativeOffset.roundToInt())
+                                        if (stepDistance == 1) {
+                                            onSetCarouselAnchor(template.id)
+                                            carouselScope.launch {
+                                                delay(70)
+                                                haptics.selection()
+                                            }
+                                        }
+                                    },
+                                    onApply = { onSelectTemplate(template.id) },
+                                    onDelete = { onRequestDeleteTemplate(template.id) },
+                                )
+                            }
                         }
                     }
-	                }
+                }
             }
         }
 
         AnimatedVisibility(
             visible = uiState.templateOverviewVisible,
-            enter = slideInVertically(
-                animationSpec = spring(
-                    dampingRatio = 0.8f,
-                    stiffness = Spring.StiffnessMedium
-                ),
-                initialOffsetY = { it / 2 },
-            ) + fadeIn(animationSpec = tween(200, easing = MotionConstants.iosEaseOut)),
-            exit = slideOutVertically(
-                animationSpec = spring(
-                    dampingRatio = 0.8f,
-                    stiffness = Spring.StiffnessMedium
-                ),
-                targetOffsetY = { it / 3 },
-            ) + fadeOut(animationSpec = tween(150, easing = MotionConstants.iosEaseInOut)),
+            enter = iosSheetFlyInEnter(),
+            exit = iosSheetFlyOutExit(),
         ) {
             TemplateOverviewSheet(
                 templates = templates,
@@ -352,19 +347,8 @@ fun TemplatesTabScreen(
         retainedOverviewDetailTemplate?.let { template ->
             AnimatedVisibility(
                 visible = overviewDetailVisible,
-                enter = fadeIn(animationSpec = tween(200, easing = MotionConstants.iosEaseOut)) +
-                    scaleIn(
-                        initialScale = 0.95f,
-                        animationSpec = spring(
-                            dampingRatio = 0.8f,
-                            stiffness = Spring.StiffnessMedium
-                        ),
-                    ),
-                exit = fadeOut(animationSpec = tween(150, easing = MotionConstants.iosEaseInOut)) +
-                    scaleOut(
-                        targetScale = 0.95f,
-                        animationSpec = tween(150, easing = MotionConstants.iosEaseInOut),
-                    ),
+                enter = iosSheetFlyInEnter(),
+                exit = iosSheetFlyOutExit(),
             ) {
                 OverviewDetailDialog(
                     template = template,
@@ -428,22 +412,8 @@ fun TemplatesTabScreen(
 
         AnimatedVisibility(
             visible = uiState.templateImportDraft != null,
-            enter = slideInVertically(
-                animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut),
-                initialOffsetY = { it / 5 },
-            ) + fadeIn(tween(MotionConstants.SettleMs, easing = MotionConstants.iosEaseOut)) +
-                scaleIn(
-                    initialScale = 0.985f,
-                    animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut),
-                ),
-            exit = slideOutVertically(
-                animationSpec = tween(MotionConstants.SettleMs, easing = MotionConstants.iosEaseInOut),
-                targetOffsetY = { it / 5 },
-            ) + fadeOut(tween(MotionConstants.QuickMs, easing = MotionConstants.iosEaseInOut)) +
-                scaleOut(
-                    targetScale = 0.99f,
-                    animationSpec = tween(MotionConstants.SettleMs, easing = MotionConstants.iosEaseInOut),
-                ),
+            enter = iosSheetFlyInEnter(),
+            exit = iosSheetFlyOutExit(),
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Box(
@@ -490,96 +460,41 @@ private fun TemplatesHeader(
     onAdd: () -> Unit,
     onOpenOverview: () -> Unit,
 ) {
-    val colors = MaterialTheme.shellShotTokens.colors
-    val macRed = if (isDark) Color(0xFFE05A5A) else Color(0xFFE86A62)
-    val macYellow = if (isDark) Color(0xFFD8A942) else Color(0xFFE3B34E)
-    val macGreen = if (isDark) Color(0xFF58B66A) else Color(0xFF62BE74)
-    val macSymbolTint = if (isDark) Color.Black.copy(alpha = 0.58f) else Color.Black.copy(alpha = 0.48f)
+    val colors = IOSColors.scheme(isDark)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
-        Text(
-            "模板",
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = (-0.6).sp,
-            color = colors.textPrimary,
+        IOSLargeTitleTopBar(
+            title = "模板",
+            isDark = isDark,
+            modifier = Modifier.weight(1f),
         )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp),
-                contentAlignment = Alignment.Center,
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IOSPillIconButton(
+                isDark = isDark,
+                onClick = onOpenOverview,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(macRed, CircleShape)
-                        .border(1.dp, Color.White.copy(alpha = if (isDark) 0.10f else 0.42f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "$count",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color.Black.copy(alpha = if (isDark) 0.62f else 0.52f),
-                    )
-                }
+                AppIcon(
+                    AppIconId.Stats,
+                    "模板总览",
+                    tint = colors.secondaryText,
+                    modifier = Modifier.size(19.dp),
+                )
             }
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .noRippleClick(onOpenOverview),
-                contentAlignment = Alignment.Center,
+            IOSPillIconButton(
+                isDark = isDark,
+                onClick = onAdd,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(
-                            color = macYellow,
-                            shape = CircleShape
-                        )
-                        .border(1.dp, Color.White.copy(alpha = if (isDark) 0.10f else 0.42f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AppIcon(
-                        AppIconId.Stats,
-                        "模板总览",
-                        tint = macSymbolTint,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .noRippleClick(onAdd),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(
-                            color = macGreen,
-                            shape = CircleShape
-                        )
-                        .border(1.dp, Color.White.copy(alpha = if (isDark) 0.10f else 0.42f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AppIcon(
-                        AppIconId.Add,
-                        "新增模板",
-                        tint = macSymbolTint,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                AppIcon(
+                    AppIconId.Add,
+                    "新增模板",
+                    tint = IOSColors.Blue,
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
     }
@@ -591,9 +506,9 @@ private fun TemplateCarouselCard(
     selected: Boolean,
     relativeOffset: Float,
     isDark: Boolean,
-	visible: Boolean = true,
-	deleting: Boolean = false,
-	lightweight: Boolean = false,
+    visible: Boolean = true,
+    deleting: Boolean = false,
+    lightweight: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onApply: () -> Unit,
@@ -602,144 +517,91 @@ private fun TemplateCarouselCard(
     val colors = MaterialTheme.shellShotTokens.colors
     val absOffset = abs(relativeOffset)
     val isCenter = absOffset < 0.35f
-	val deleteProgress by animateFloatAsState(
-	    targetValue = if (deleting) 1f else 0f,
-	    animationSpec = tween(280, easing = MotionConstants.iosEaseInOut),
-	    label = "template-delete-${template.id}",
-	)
-	val showActionRow = !lightweight && !deleting && absOffset < 0.6f
-	val alpha = when {
-	    absOffset >= 3f -> 0f
-	    else -> (1f - absOffset * 0.4f).coerceAtLeast(0f)
-	}
-	val scale = 1f - absOffset * 0.12f
-	val rotation = relativeOffset * 12f
-	val deleteScale = 1f - 0.075f * deleteProgress
-	Box(
+    val stackOffset = relativeOffset.coerceIn(-2.2f, 2.2f)
+    val deleteProgress by animateFloatAsState(
+        targetValue = if (deleting) 1f else 0f,
+        animationSpec = tween(280, easing = MotionConstants.iosEaseInOut),
+        label = "template-delete-${template.id}",
+    )
+    val showActionRow = !lightweight && !deleting && absOffset < 0.6f
+    val alpha = when {
+        absOffset >= 2.6f -> 0f
+        else -> (1f - absOffset * 0.24f).coerceIn(0f, 1f)
+    }
+    val scale = 1f - absOffset * 0.065f
+    val deleteScale = 1f - 0.075f * deleteProgress
+    val cornerRadius = if (isCenter) 40.dp else 36.dp
+    Box(
         modifier = modifier
-            .width(260.dp)
-            .height(480.dp)
-	            .graphicsLayer {
-	                translationX = (relativeOffset * 140.dp.toPx())
-	                translationY = (abs(relativeOffset) * 35.dp.toPx()) + (18.dp.toPx() * deleteProgress)
-	                rotationZ = rotation * (1f - deleteProgress)
-	                scaleX = scale * deleteScale
-	                scaleY = scale * deleteScale
-	                this.alpha = alpha * (1f - deleteProgress)
-	                transformOrigin = TransformOrigin(0.5f, if (deleting) 0.5f else 1f)
-	                shadowElevation = (if (lightweight) 0f else if (isCenter) 40.dp.toPx() else 8.dp.toPx()) * (1f - deleteProgress)
-	                shape = RoundedCornerShape(40.dp)
-	                clip = false
-	            }
-	            .noRippleClick(enabled = visible && !deleting && !isCenter, onClick = onClick),
+            .width(286.dp)
+            .height(518.dp)
+            .graphicsLayer {
+                translationX = (stackOffset * 112.dp.toPx())
+                translationY = ((absOffset * 24.dp.toPx()) + (stackOffset * stackOffset * 5.dp.toPx())) +
+                    (18.dp.toPx() * deleteProgress)
+                rotationZ = (stackOffset * 4.8f) * (1f - deleteProgress)
+                rotationY = (stackOffset * -6f).coerceIn(-10f, 10f)
+                cameraDistance = 72.dp.toPx()
+                scaleX = scale * deleteScale
+                scaleY = scale * deleteScale
+                this.alpha = alpha * (1f - deleteProgress)
+                transformOrigin = TransformOrigin(0.5f, if (deleting) 0.5f else 1f)
+                shadowElevation = (if (lightweight) 0f else if (isCenter) 26.dp.toPx() else 8.dp.toPx()) *
+                    (1f - deleteProgress)
+                shape = RoundedCornerShape(cornerRadius)
+                clip = false
+            }
+            .noRippleClick(enabled = visible && !deleting && !isCenter, onClick = onClick),
     ) {
-        if (isCenter && !lightweight) {
-            CardAura(isDark = isDark)
-        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(40.dp))
+                .clip(RoundedCornerShape(cornerRadius))
                 .background(
                     brush = Brush.verticalGradient(
                         colors = if (isDark) {
                             listOf(
-                                colors.surface.copy(alpha = if (isCenter) 1f else 0.92f),
-                                colors.surfaceAlt.copy(alpha = if (isCenter) 0.98f else 0.88f),
+                                Color(0xFF222225).copy(alpha = if (isCenter) 0.98f else 0.92f),
+                                colors.surfaceAlt.copy(alpha = if (isCenter) 0.96f else 0.88f),
                             )
                         } else {
                             listOf(
-                                Color.White.copy(alpha = if (isCenter) 1f else 0.95f),
-                                Color(0xFFF7F7FA).copy(alpha = if (isCenter) 0.98f else 0.90f),
+                                Color.White.copy(alpha = if (isCenter) 1f else 0.97f),
+                                Color(0xFFF4F5F8).copy(alpha = if (isCenter) 0.98f else 0.92f),
                             )
                         },
                     ),
-                    shape = RoundedCornerShape(40.dp),
+                    shape = RoundedCornerShape(cornerRadius),
                 )
                 .border(
-                    width = if (isCenter) 6.dp else 4.dp,
+                    width = if (isCenter) 1.2.dp else 0.9.dp,
                     color = if (isDark) {
-                        Color.White.copy(alpha = if (isCenter) 0.08f else 0.04f)
+                        Color.White.copy(alpha = if (isCenter) 0.12f else 0.06f)
                     } else {
-                        Color(0xFFF7F7F9).copy(alpha = if (isCenter) 1f else 0.76f)
+                        Color.White.copy(alpha = if (isCenter) 0.92f else 0.66f)
                     },
-                    shape = RoundedCornerShape(40.dp),
+                    shape = RoundedCornerShape(cornerRadius),
                 )
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(if (isCenter) 0.82f else 0.72f)
-                .height(if (isCenter) 56.dp else 42.dp)
-                .align(Alignment.TopCenter)
-                .offset(y = 12.dp)
-                .blur(if (isCenter) 18.dp else 10.dp)
-                .background(
-                    brush = Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = if (isCenter) 0.42f else 0.16f),
-                            Color.Transparent,
-                        )
-                    ),
-                    shape = CircleShape,
-                ),
         )
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 34.dp),
+                .padding(horizontal = 22.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(modifier = Modifier.height(if (isCenter) 12.dp else 18.dp))
             Box(
                 modifier = Modifier
-                    .width(136.dp)
-                    .height(228.dp),
+                    .width(if (isCenter) 212.dp else 196.dp)
+                    .height(if (isCenter) 392.dp else 362.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 TemplatePreviewThumbnail(
                     previewPath = template.displayPreviewAsset,
                     contentDescription = template.name,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 4.dp, vertical = 6.dp),
-                    cornerRadius = 24.dp,
+                    modifier = Modifier.fillMaxSize(),
+                    cornerRadius = 28.dp,
                     selected = selected,
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSizeCompat()
-                        .padding(horizontal = 10.dp, vertical = 12.dp)
-                        .blur(if (isCenter) 12.dp else 7.dp)
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = if (isCenter) 0.16f else 0.08f),
-                                    Color.Transparent,
-                                ),
-                            ),
-                            shape = RoundedCornerShape(28.dp),
-                        )
-                )
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-            Column(
-                modifier = Modifier,
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    template.name,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
-                    color = colors.textPrimary.copy(alpha = if (isCenter) 1f else 0.84f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "${template.outputWidth.takeIf { it > 0 } ?: template.screenRect.width} × ${template.outputHeight.takeIf { it > 0 } ?: template.screenRect.height}",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.textSecondary.copy(alpha = if (isCenter) 0.88f else 0.58f),
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
@@ -758,44 +620,55 @@ private fun TemplateCarouselCard(
             ) {
                 Row(
                     modifier = Modifier
-                        .zIndex(5f)
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.Center,
+                        .zIndex(5f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (selected) {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    color = ShellColors.AccentBlue.copy(alpha = if (isDark) 0.22f else 0.12f),
-                                    shape = CircleShape,
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = ShellColors.AccentBlue.copy(alpha = if (isDark) 0.26f else 0.16f),
-                                    shape = CircleShape,
-                                )
-                                .padding(horizontal = 24.dp, vertical = 10.dp),
-                        ) {
-                            Text("已应用", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ShellColors.AccentBlue)
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .background(ShellColors.AccentBlue, CircleShape)
-                                .padding(horizontal = 24.dp, vertical = 10.dp)
-                                .noRippleClick(onApply),
-                        ) {
-                            Text("应用模板", fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.White)
-                        }
+                    Box(
+                        modifier = Modifier
+                            .width(124.dp)
+                            .height(42.dp)
+                            .background(
+                                color = if (selected) {
+                                    ShellColors.AccentBlue.copy(alpha = if (isDark) 0.18f else 0.12f)
+                                } else {
+                                    ShellColors.AccentBlue
+                                },
+                                shape = CircleShape,
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (selected) {
+                                    ShellColors.AccentBlue.copy(alpha = if (isDark) 0.34f else 0.24f)
+                                } else {
+                                    Color.White.copy(alpha = if (isDark) 0.12f else 0.34f)
+                                },
+                                shape = CircleShape,
+                            )
+                            .noRippleClick(enabled = !selected, onClick = onApply),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = if (selected) "已应用" else "应用",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (selected) ShellColors.AccentBlue else Color.White,
+                        )
                     }
                     Box(
                         modifier = Modifier
-                            .padding(start = 8.dp)
-                            .size(40.dp)
+                            .size(42.dp)
                             .background(
-                                color = if (template.canDelete) ShellColors.AccentRed.copy(alpha = 0.12f) else colors.subtleFill,
+                                brush = Brush.verticalGradient(
+                                    colors = if (template.canDelete) {
+                                        listOf(
+                                            ShellColors.AccentRed.copy(alpha = 0.18f),
+                                            ShellColors.AccentRed.copy(alpha = 0.10f),
+                                        )
+                                    } else {
+                                        listOf(colors.subtleFill, colors.subtleFill)
+                                    }
+                                ),
                                 shape = CircleShape
                             )
                             .graphicsLayer { this.alpha = if (template.canDelete) 1f else 0.38f }
@@ -813,11 +686,6 @@ private fun TemplateCarouselCard(
         }
     }
 }
-
-
-
-@Composable
-private fun Modifier.matchParentSizeCompat(): Modifier = this.fillMaxSize()
 
 @Composable
 private fun EmptyTemplatesStage(
@@ -876,57 +744,4 @@ private fun EmptyTemplatesStage(
             )
         }
     }
-}
-
-@Composable
-private fun BoxScope.CardAura(
-    isDark: Boolean,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer { alpha = if (isDark) 0.8f else 1f }
-            .blur(42.dp)
-            .background(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = if (isDark) 0.32f else 0.18f),
-                        Color(0xFF0A84FF).copy(alpha = if (isDark) 0.18f else 0.14f),
-                        Color.Transparent,
-                    ),
-                ),
-                shape = RoundedCornerShape(58.dp),
-            )
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 8.dp, vertical = 16.dp)
-            .blur(24.dp)
-            .background(
-                color = Color.Black.copy(alpha = if (isDark) 0.26f else 0.12f),
-                shape = RoundedCornerShape(48.dp),
-            )
-    )
-}
-
-@Composable
-private fun BoxScope.PreviewGlossOverlay(
-    isDark: Boolean,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(32.dp))
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (isDark) 0.14f else 0.28f),
-                        Color.White.copy(alpha = if (isDark) 0.06f else 0.12f),
-                        Color.Transparent,
-                        Color(0xFFB8E4FF).copy(alpha = if (isDark) 0.08f else 0.18f),
-                    ),
-                ),
-            )
-    )
 }

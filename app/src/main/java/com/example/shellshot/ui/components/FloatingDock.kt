@@ -1,15 +1,8 @@
 package com.example.shellshot.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,11 +31,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,6 +57,7 @@ data class DockItem(
 private val DockShellHeight = 62.dp
 private val DockItemWidth = 56.dp
 private val DockPillWidth = 68.dp
+private val DockPillStretchWidth = 76.dp
 private val DockSpacing = 4.dp
 private val DockHorizontalPadding = 6.dp
 private val DockVerticalPadding = 4.dp
@@ -93,16 +87,17 @@ fun FloatingDock(
         val itemSpacing = (visibleItems.size - 1).coerceAtLeast(0) * DockSpacing.value
         itemWidths + itemSpacing + (DockHorizontalPadding.value * 2f)
     }.dp
+    val targetPillWidth = if (stretchPill) DockPillStretchWidth else DockPillWidth
+    val pillWidth by animateDpAsState(
+        targetValue = targetPillWidth,
+        animationSpec = MotionConstants.dockSpringDp,
+        label = "dock-pill-width",
+    )
     val activeOffset by animateDpAsState(
-        targetValue = (DockHorizontalPadding + (DockItemWidth + DockSpacing) * activeIndex) -
-            ((DockPillWidth - DockItemWidth) / 2),
+        targetValue = DockHorizontalPadding + (DockItemWidth + DockSpacing) * activeIndex +
+            (DockItemWidth / 2) - (targetPillWidth / 2),
         animationSpec = MotionConstants.dockSpringDp,
         label = "dock-active-offset",
-    )
-    val pillScaleX by animateFloatAsState(
-        targetValue = if (stretchPill) 1.08f else 1f,
-        animationSpec = MotionConstants.dockSpring,
-        label = "dock-pill-scale-x",
     )
     val pillScaleY by animateFloatAsState(
         targetValue = if (stretchPill) 0.96f else 1f,
@@ -150,11 +145,11 @@ fun FloatingDock(
         ) {
             DockSelectionPill(
                 isDark = isDark,
+                width = pillWidth,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .offset(x = activeOffset)
                     .graphicsLayer {
-                        scaleX = pillScaleX
                         scaleY = pillScaleY
                     },
             )
@@ -276,6 +271,7 @@ private fun DockShell(
 @Composable
 private fun DockSelectionPill(
     isDark: Boolean,
+    width: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
     val pillBrush = Brush.verticalGradient(
@@ -299,7 +295,7 @@ private fun DockSelectionPill(
 
     Box(
         modifier = modifier
-            .width(DockPillWidth)
+            .width(width)
             .height(54.dp)
             .padding(vertical = 3.dp)
             .clip(DockPillShape)
@@ -351,14 +347,19 @@ private fun DockItemButton(
         label = "dock-icon-offset-${item.tab}",
     )
     val labelOffset by animateDpAsState(
-        targetValue = if (selected) 10.dp else 12.dp,
+        targetValue = if (selected) 10.dp else 16.dp,
         animationSpec = MotionConstants.dockSpringDp,
         label = "dock-label-offset-${item.tab}",
     )
     val labelScale by animateFloatAsState(
-        targetValue = if (selected) 1f else 0.94f,
+        targetValue = if (selected) 1f else 0.98f,
         animationSpec = MotionConstants.dockSpring,
         label = "dock-label-scale-${item.tab}",
+    )
+    val labelAlpha by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = tween(durationMillis = MotionConstants.QuickMs, easing = MotionConstants.iosEaseOut),
+        label = "dock-label-alpha-${item.tab}",
     )
 
     Box(
@@ -383,26 +384,21 @@ private fun DockItemButton(
             )
         }
 
-        AnimatedVisibility(
-            visible = selected,
-            enter = fadeIn(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
-                scaleIn(initialScale = 0.92f, animationSpec = tween(220, easing = FastOutSlowInEasing)),
-            exit = fadeOut(animationSpec = tween(110)) +
-                scaleOut(targetScale = 0.96f, animationSpec = tween(150)),
-            modifier = Modifier.align(Alignment.Center),
-        ) {
-            Text(
-                text = item.label,
-                fontSize = 11.sp,
-                lineHeight = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = ShellColors.AccentBlue,
-                modifier = Modifier.graphicsLayer {
+        Text(
+            text = item.label,
+            fontSize = 11.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = ShellColors.AccentBlue,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .clearAndSetSemantics {}
+                .graphicsLayer {
+                    alpha = labelAlpha
                     translationY = labelOffset.toPx()
                     scaleX = labelScale
                     scaleY = labelScale
                 },
-            )
-        }
+        )
     }
 }

@@ -33,7 +33,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -87,46 +86,65 @@ class AutoShellForegroundService : LifecycleService() {
         )
         cancelScheduledRestart("onStartCommand")
 
-        if (action == ACTION_STOP) {
-            val trustedStop = intent?.getBooleanExtra(EXTRA_TRUSTED_STOP, false) ?: false
-            if (!trustedStop) {
-                appContainer.logger.d(TAG, "忽略未标记的停止指令")
-                return START_STICKY
-            }
+        return when (action) {
+            ACTION_STOP -> handleStopCommand(intent)
+            else -> handleStartCommand()
+        }
+    }
 
-            setExplicitStopRequested(true, "用户主动点击停止监听")
-            cancelScheduledRestart("user_stop")
-            cancelSupervisorAlarm("user_stop")
-            runBlocking {
-                appContainer.appPrefs.updateMonitoringEnabled(false)
-            }
-            MonitoringHeartbeatStore.clear(applicationContext)
-            appContainer.appStateStore.setMode(AutoShellMode.USER_STOPPED, "用户主动停止监听")
-            stopMonitoring("user_stop")
-            return START_NOT_STICKY
+    private fun handleStopCommand(intent: Intent?): Int {
+        val trustedStop = intent?.getBooleanExtra(EXTRA_TRUSTED_STOP, false) ?: false
+        if (!trustedStop) {
+            appContainer.logger.d(TAG, "忽略未标记的停止指令")
+            return START_STICKY
         }
 
-        val settings = runBlocking { appContainer.appPrefs.currentSettings() }
+        setExplicitStopRequested(true, "用户主动点击停止监听")
+        cancelScheduledRestart("user_stop")
+        cancelSupervisorAlarm("user_stop")
+        ensureRuntime("user_stop").launch {
+            runCatching {
+                appContainer.appPrefs.updateMonitoringEnabled(false)
+            }.onFailure { throwable ->
+                appContainer.logger.e(TAG, "持久化停止监听状态失败", throwable)
+            }
+            runCatching {
+                MonitoringHeartbeatStore.clear(applicationContext)
+                appContainer.appStateStore.setMode(AutoShellMode.USER_STOPPED, "用户主动停止监听")
+            }
+            stopMonitoring("user_stop")
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun handleStartCommand(): Int {
+        setExplicitStopRequested(false, "服务启动")
+        ensureForeground()
+        ensureRuntime("start_command")
+        appContainer.appStateStore.setMonitoringPhase(MonitoringPhase.Starting)
+        ensureRuntime("start_prerequisite_check").launch {
+            startMonitoringIfPrerequisitesReady()
+        }
+        return START_STICKY
+    }
+
+    private suspend fun startMonitoringIfPrerequisitesReady() {
+        val settings = appContainer.appPrefs.currentSettings()
         if (!settings.monitoringEnabled || !appContainer.permissionManager.hasCoreMonitoringPermissions()) {
             appContainer.logger.d(TAG, "无法启动后台监听：缺少前置条件")
             appContainer.appStateStore.setMode(AutoShellMode.USER_STOPPED, "缺少前置条件")
             stopMonitoring("missing_prerequisites")
-            return START_NOT_STICKY
+            return
         }
 
-        setExplicitStopRequested(false, "服务启动")
-        ensureForeground()
-        ensureRuntime("start_command")
         startHeartbeatIfNeeded()
         scheduleSupervisorAlarm("start_command")
         appContainer.appStateStore.setMonitoringActive(true)
-        appContainer.appStateStore.setMonitoringPhase(MonitoringPhase.Starting)
         startEnvironmentMonitoring()
         startObservationWatchdogIfNeeded()
         startPeriodicFixedDirectoryScanIfNeeded()
         startQueueWorkerIfNeeded()
         requestModeEvaluation("start_command")
-        return START_STICKY
     }
 
     override fun onDestroy() {
@@ -400,12 +418,7 @@ class AutoShellForegroundService : LifecycleService() {
 
                 else -> null
             }
-            val targetMode = when {
-                !settings.monitoringEnabled -> AutoShellMode.USER_STOPPED
-                !runtimeState.screenOn || !runtimeState.userUnlocked -> AutoShellMode.SUSPEND_SCREEN_OFF
-                runtimeState.gameForeground -> AutoShellMode.SUSPEND_GAME
-                else -> AutoShellMode.ACTIVE
-            }
+            val targetMode = AutoShellModeEvaluator.evaluate(settings, runtimeState)
 
             if (runtimeState.mode != targetMode) {
                 appContainer.logger.d(
@@ -479,7 +492,7 @@ class AutoShellForegroundService : LifecycleService() {
 
     private fun verifyObservationChain(reason: String) {
         val runtimeState = appContainer.appStateStore.runtimeState.value
-        val monitoringEnabled = appContainer.appPrefs.cachedSettings().monitoringEnabled
+        val monitoringEnabled = appContainer.appPrefs.cachedSettingsOrDefault().monitoringEnabled
         if (!monitoringEnabled || runtimeState.mode == AutoShellMode.USER_STOPPED) {
             return
         }
@@ -573,7 +586,7 @@ class AutoShellForegroundService : LifecycleService() {
     }
 
     private fun registerMediaStoreFallbackIfNeeded() {
-        val settings = appContainer.appPrefs.cachedSettings()
+        val settings = appContainer.appPrefs.cachedSettingsOrDefault()
         val shouldEnableFallback = settings.mediaStoreFallbackEnabled &&
             appContainer.permissionManager.canUseMediaStoreFallback()
 
@@ -659,7 +672,7 @@ class AutoShellForegroundService : LifecycleService() {
 
     private fun canCaptureCandidates(): Boolean {
         val runtimeState = appContainer.appStateStore.runtimeState.value
-        return appContainer.appPrefs.cachedSettings().monitoringEnabled &&
+        return appContainer.appPrefs.cachedSettingsOrDefault().monitoringEnabled &&
             runtimeState.mode != AutoShellMode.USER_STOPPED
     }
 
@@ -1001,7 +1014,7 @@ class AutoShellForegroundService : LifecycleService() {
     }
 
     private fun maybeRestartSelf(reason: String) {
-        val settings = appContainer.appPrefs.cachedSettings()
+        val settings = appContainer.appPrefs.cachedSettingsOrDefault()
         if (!settings.monitoringEnabled || !appContainer.permissionManager.hasCoreMonitoringPermissions()) {
             appContainer.logger.d(TAG, "跳过自恢复 reason=$reason")
             return
@@ -1207,6 +1220,6 @@ class AutoShellForegroundService : LifecycleService() {
     }
 
     private fun currentScreenshotRelativePathBlocking(): String {
-        return appContainer.appPrefs.cachedSettings().screenshotRelativePath
+        return appContainer.appPrefs.cachedSettingsOrDefault().screenshotRelativePath
     }
 }

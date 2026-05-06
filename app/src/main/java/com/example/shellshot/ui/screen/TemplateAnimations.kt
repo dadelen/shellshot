@@ -43,6 +43,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.shellshot.template.ShellTemplate
 import com.example.shellshot.ui.components.TemplatePreviewThumbnail
+import com.example.shellshot.ui.designsystem.ioslike.IOSFlyInContainer
+import com.example.shellshot.ui.designsystem.ioslike.iosSheetFlyInEnter
+import com.example.shellshot.ui.designsystem.ioslike.iosSheetFlyOutExit
 import com.example.shellshot.ui.theme.MotionConstants
 import com.example.shellshot.ui.theme.ShellColors
 import com.example.shellshot.ui.theme.shellShotTokens
@@ -230,48 +233,53 @@ fun TemplateLoadingOverlay(isDark: Boolean) {
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            modifier = Modifier
-                .width(252.dp)
-                .background(
-                    color = if (isDark) Color(0xFF17181C) else Color(0xFFFCFCFD),
-                    shape = RoundedCornerShape(30.dp),
-                )
-                .border(
-                    width = 1.dp,
-                    color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.78f),
-                    shape = RoundedCornerShape(30.dp),
-                )
-                .padding(horizontal = 28.dp, vertical = 26.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        IOSFlyInContainer(
+            enter = iosSheetFlyInEnter(),
+            exit = iosSheetFlyOutExit(),
         ) {
-            Canvas(
+            Column(
                 modifier = Modifier
-                    .size(48.dp)
-                    .graphicsLayer { rotationZ = rotation },
+                    .width(252.dp)
+                    .background(
+                        color = if (isDark) Color(0xFF17181C) else Color(0xFFFCFCFD),
+                        shape = RoundedCornerShape(30.dp),
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.78f),
+                        shape = RoundedCornerShape(30.dp),
+                    )
+                    .padding(horizontal = 28.dp, vertical = 26.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                drawArc(
-                    color = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFCCD1DA),
-                    startAngle = 0f,
-                    sweepAngle = 360f,
-                    useCenter = false,
-                    style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
-                )
-                drawArc(
-                    color = ShellColors.AccentBlue,
-                    startAngle = -90f,
-                    sweepAngle = 94f,
-                    useCenter = false,
-                    style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+                Canvas(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .graphicsLayer { rotationZ = rotation },
+                ) {
+                    drawArc(
+                        color = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFCCD1DA),
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+                    )
+                    drawArc(
+                        color = ShellColors.AccentBlue,
+                        startAngle = -90f,
+                        sweepAngle = 94f,
+                        useCenter = false,
+                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+                    )
+                }
+                Text(
+                    "正在加载图片",
+                    modifier = Modifier.padding(top = 18.dp),
+                    color = colors.textPrimary,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
-            Text(
-                "正在加载图片",
-                modifier = Modifier.padding(top = 18.dp),
-                color = colors.textPrimary,
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
-            )
         }
     }
 }

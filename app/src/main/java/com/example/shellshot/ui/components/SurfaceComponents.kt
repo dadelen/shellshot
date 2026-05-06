@@ -201,15 +201,15 @@ fun StaggeredReveal(
     var visible by remember(index) { mutableStateOf(false) }
     LaunchedEffect(index) {
         visible = false
-        kotlinx.coroutines.delay(index * 80L)
+        kotlinx.coroutines.delay(index.coerceAtMost(4) * 55L)
         visible = true
     }
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
-        enter = fadeIn(animationSpec = tween(360, easing = FastOutSlowInEasing)) +
+        enter = fadeIn(animationSpec = tween(300, easing = MotionConstants.iosEaseOut)) +
             slideInVertically(
-                initialOffsetY = { it / 5 },
+                initialOffsetY = { it / 6 },
                 animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut),
             ),
         exit = fadeOut(animationSpec = tween(MotionConstants.QuickMs, easing = MotionConstants.iosEaseInOut)) +
@@ -230,14 +230,15 @@ fun LiquidGlassSwitch(
 ) {
     val haptics = rememberShellShotHaptics()
     var isAnimating by remember { mutableStateOf(false) }
+    var animatingTowardOn by remember { mutableStateOf(isOn) }
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val switchEase = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
     val thumbSpring = spring<androidx.compose.ui.unit.Dp>(stiffness = 500f, dampingRatio = 0.86f)
     val xOffset by animateDpAsState(
         targetValue = when {
-            isOn && isAnimating -> 0.dp
-            isOn -> 24.dp
+            isAnimating && animatingTowardOn -> 14.dp
             isAnimating -> 4.dp
+            isOn -> 24.dp
             else -> 0.dp
         },
         animationSpec = thumbSpring,
@@ -255,7 +256,7 @@ fun LiquidGlassSwitch(
     )
     val backgroundColor by animateColorAsState(
         targetValue = if (isOn) ShellColors.AccentGreen else if (darkTheme) Color(0xFF262626) else Color(0xFFE5E5E5),
-        animationSpec = tween(500, easing = switchEase),
+        animationSpec = tween(420, easing = switchEase),
         label = "switch-bg",
     )
     val borderColor by animateColorAsState(
@@ -266,7 +267,7 @@ fun LiquidGlassSwitch(
         } else {
             Color(0xFFD4D4D4).copy(alpha = 0.5f)
         },
-        animationSpec = tween(500, easing = switchEase),
+        animationSpec = tween(420, easing = switchEase),
         label = "switch-border",
     )
     val solidThumbAlpha by animateFloatAsState(
@@ -297,6 +298,7 @@ fun LiquidGlassSwitch(
             .noRippleClick(pressedScale = 1f, pressedAlpha = 1f) {
                 val next = !isOn
                 haptics.toggle(next)
+                animatingTowardOn = next
                 isAnimating = true
                 onToggle(next)
             },

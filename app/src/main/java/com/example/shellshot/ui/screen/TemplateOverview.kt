@@ -355,17 +355,6 @@ fun OverviewDetailDialog(
                         AppIcon(AppIconId.Delete, "删除模板", tint = ShellColors.AccentRed)
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(40.dp)
-                        .background(colors.subtleFill, CircleShape)
-                        .graphicsLayer { alpha = chromeAlpha }
-                        .noRippleClick(onDismiss),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AppIcon(AppIconId.Close, "关闭", tint = colors.textSecondary)
-                }
             }
             Column(
                 modifier = Modifier
@@ -389,35 +378,6 @@ fun OverviewDetailDialog(
                         cornerRadius = 20.dp,
                     )
                 }
-                Text(
-                    template.name,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
-                    color = colors.textPrimary,
-                    modifier = Modifier.graphicsLayer {
-                        alpha = chromeAlpha
-                        translationY = contentOffset.dp.toPx()
-                    },
-                )
-                Box(
-                    modifier = Modifier.graphicsLayer {
-                        alpha = chromeAlpha
-                        translationY = contentOffset.dp.toPx()
-                    }
-                ) {
-                    InfoRow(
-                        label = "分辨率",
-                        value = "${template.outputWidth.takeIf { it > 0 } ?: template.screenRect.width} × ${template.outputHeight.takeIf { it > 0 } ?: template.screenRect.height}",
-                    )
-                }
-                Box(
-                    modifier = Modifier.graphicsLayer {
-                        alpha = chromeAlpha
-                        translationY = contentOffset.dp.toPx()
-                    }
-                ) {
-                    InfoRow("模板类型", if (template.canDelete) "用户自定义" else "内置模板")
-                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -434,20 +394,5 @@ fun OverviewDetailDialog(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun InfoRow(label: String, value: String) {
-    val colors = MaterialTheme.shellShotTokens.colors
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(colors.subtleFill, RoundedCornerShape(18.dp))
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, color = colors.textSecondary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Text(value, color = colors.textPrimary, fontWeight = FontWeight.Black, fontSize = 14.sp)
     }
 }

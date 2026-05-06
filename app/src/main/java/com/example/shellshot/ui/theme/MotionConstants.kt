@@ -11,21 +11,22 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
 
 object MotionConstants {
-    const val QuickMs = 160
+    const val QuickMs = 150
     const val SettleMs = 260
-    const val PageMs = 420
-    const val OverlayMs = 280
+    const val PageMs = 360
+    const val PageExitMs = 280
+    const val OverlayMs = 300
 
     val iosEaseOut: Easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
     val iosEaseInOut: Easing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
 
     val iosSpring = spring<Float>(
-        dampingRatio = 0.86f,
+        dampingRatio = 0.84f,
         stiffness = Spring.StiffnessMediumLow,
     )
 
     val iosSpringDp = spring<Dp>(
-        dampingRatio = 0.86f,
+        dampingRatio = 0.84f,
         stiffness = Spring.StiffnessMediumLow,
     )
 
@@ -50,13 +51,13 @@ object MotionConstants {
     )
 
     val dockSpring = spring<Float>(
-        dampingRatio = 0.82f,
-        stiffness = Spring.StiffnessMediumLow,
+        dampingRatio = 0.78f,
+        stiffness = Spring.StiffnessMedium,
     )
 
     val dockSpringDp = spring<Dp>(
-        dampingRatio = 0.82f,
-        stiffness = Spring.StiffnessMediumLow,
+        dampingRatio = 0.78f,
+        stiffness = Spring.StiffnessMedium,
     )
 
     val sheetSpring = spring<Float>(

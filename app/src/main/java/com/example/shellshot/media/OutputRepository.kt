@@ -43,11 +43,24 @@ class OutputRepository(
             sourceDisplayName = sourceCandidate.displayName,
             namingStrategy = namingStrategy,
         )
+        val tempFile = File(outputDirectory, ".${outputFile.name}.tmp")
+        if (tempFile.exists() && !tempFile.delete()) {
+            error("Unable to clean stale output temp file: ${tempFile.absolutePath}")
+        }
 
-        FileOutputStream(outputFile).use { outputStream ->
+        FileOutputStream(tempFile).use { outputStream ->
             check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)) {
-                "Bitmap compression failed for ${outputFile.absolutePath}"
+                "Bitmap compression failed for ${tempFile.absolutePath}"
             }
+            outputStream.fd.sync()
+        }
+        if (outputFile.exists() && !outputFile.delete()) {
+            tempFile.delete()
+            error("Unable to replace output file: ${outputFile.absolutePath}")
+        }
+        if (!tempFile.renameTo(outputFile)) {
+            tempFile.delete()
+            error("Unable to publish output file: ${outputFile.absolutePath}")
         }
 
         val scannedUri = scanFile(outputFile)

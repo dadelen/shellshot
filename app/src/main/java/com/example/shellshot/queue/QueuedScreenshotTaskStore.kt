@@ -5,6 +5,11 @@ import com.example.shellshot.data.AppPrefs
 import com.example.shellshot.media.ScreenshotCandidate
 import com.example.shellshot.media.ScreenshotDirectories
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -341,15 +346,63 @@ class QueuedScreenshotTaskStore(
             return ScreenshotTaskSnapshot()
         }
         return runCatching {
-            json.decodeFromString<ScreenshotTaskSnapshot>(storeFile.readText())
-        }.getOrDefault(ScreenshotTaskSnapshot())
+            val snapshot = json.decodeFromString<ScreenshotTaskSnapshot>(storeFile.readText())
+            if (snapshot.schemaVersion > CURRENT_SCHEMA_VERSION) {
+                quarantineSnapshotLocked("future_schema_${snapshot.schemaVersion}")
+                ScreenshotTaskSnapshot()
+            } else {
+                snapshot.copy(tasks = snapshot.tasks.takeLast(MAX_TASKS))
+            }
+        }.getOrElse {
+            quarantineSnapshotLocked("decode_failed")
+            ScreenshotTaskSnapshot()
+        }
     }
 
     private fun writeSnapshotLocked(snapshot: ScreenshotTaskSnapshot) {
         storeFile.parentFile?.mkdirs()
         val tempFile = File(storeFile.parentFile, "${storeFile.name}.tmp")
-        tempFile.writeText(json.encodeToString(snapshot))
-        tempFile.renameTo(storeFile)
+        val payload = json.encodeToString(snapshot.copy(schemaVersion = CURRENT_SCHEMA_VERSION))
+        runCatching {
+            FileOutputStream(tempFile).use { output ->
+                output.write(payload.toByteArray(Charsets.UTF_8))
+                output.fd.sync()
+            }
+            publishSnapshotFile(tempFile, storeFile)
+        }.onFailure { throwable ->
+            tempFile.delete()
+            throw throwable
+        }
+    }
+
+    private fun publishSnapshotFile(tempFile: File, targetFile: File) {
+        runCatching {
+            Files.move(
+                tempFile.toPath(),
+                targetFile.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }.recoverCatching { throwable ->
+            if (throwable !is AtomicMoveNotSupportedException) {
+                throw throwable
+            }
+            Files.move(
+                tempFile.toPath(),
+                targetFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }.getOrElse { throwable ->
+            throw IOException("Unable to publish ${targetFile.absolutePath}", throwable)
+        }
+    }
+
+    private fun quarantineSnapshotLocked(reason: String) {
+        val parent = storeFile.parentFile ?: return
+        val quarantineFile = File(parent, "${storeFile.name}.bad.${System.currentTimeMillis()}.$reason")
+        if (!storeFile.renameTo(quarantineFile)) {
+            storeFile.delete()
+        }
     }
 
     private fun pruneRecentSuccessfulSignaturesLocked(now: Long) {
@@ -381,6 +434,7 @@ class QueuedScreenshotTaskStore(
     }
 
     private companion object {
+        const val CURRENT_SCHEMA_VERSION = 1
         const val MAX_TASKS = 120
         const val MAX_RECENT_SUCCESS_SIGNATURES = 64
         const val RECENT_SUCCESS_CACHE_TTL_MILLIS = 90_000L

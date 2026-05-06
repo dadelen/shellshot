@@ -35,6 +35,7 @@ import com.example.shellshot.data.LogLevel
 import com.example.shellshot.data.ProcessingResult
 import com.example.shellshot.data.ProcessingStatus
 import com.example.shellshot.ui.components.GlassSurfaceCard
+import com.example.shellshot.ui.designsystem.ioslike.IOSFlyInContainer
 import com.example.shellshot.ui.theme.shellShotTokens
 import com.example.shellshot.utils.TimeUtils
 import dev.chrisbanes.haze.HazeState
@@ -64,12 +65,13 @@ fun LogsTabScreen(
     val successCount = history.count { it.status == ProcessingStatus.Success }
     val failedCount = history.count { it.status == ProcessingStatus.Failed }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-    ) {
+    IOSFlyInContainer(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+        ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -164,6 +166,7 @@ fun LogsTabScreen(
                     }
                 }
             }
+        }
         }
     }
 }

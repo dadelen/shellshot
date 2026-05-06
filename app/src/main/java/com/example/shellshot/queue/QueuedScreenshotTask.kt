@@ -56,6 +56,7 @@ data class QueuedScreenshotTask(
 
 @Serializable
 data class ScreenshotTaskSnapshot(
+    val schemaVersion: Int = 1,
     val tasks: List<QueuedScreenshotTask> = emptyList(),
 )
 

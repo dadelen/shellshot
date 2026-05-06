@@ -50,10 +50,8 @@ data class TemplateModuleSpacingTokens(
 data class TemplateModuleTypographyTokens(
     val pageTitle: TextUnit,
     val cardTitle: TextUnit,
-    val cardSubtitle: TextUnit,
     val buttonText: TextUnit,
     val overviewTitle: TextUnit,
-    val overviewSubtitle: TextUnit,
 )
 
 @Immutable
@@ -98,10 +96,8 @@ private val lightTemplateModuleTokens = TemplateModuleTokens(
     typography = TemplateModuleTypographyTokens(
         pageTitle = 30.sp,
         cardTitle = 22.sp,
-        cardSubtitle = 13.sp,
         buttonText = 11.sp,
         overviewTitle = 15.sp,
-        overviewSubtitle = 11.sp,
     ),
 )
 
@@ -138,10 +134,8 @@ private val darkTemplateModuleTokens = TemplateModuleTokens(
     typography = TemplateModuleTypographyTokens(
         pageTitle = 30.sp,
         cardTitle = 22.sp,
-        cardSubtitle = 13.sp,
         buttonText = 11.sp,
         overviewTitle = 15.sp,
-        overviewSubtitle = 11.sp,
     ),
 )
 

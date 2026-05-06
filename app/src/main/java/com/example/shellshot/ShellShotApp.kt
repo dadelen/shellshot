@@ -8,13 +8,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,17 +24,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.shellshot.data.MediaAccessLevel
 import com.example.shellshot.permissions.SpecialAccessNavigator
 import com.example.shellshot.ui.AppTab
 import com.example.shellshot.ui.MainViewModel
 import com.example.shellshot.ui.components.DockItem
 import com.example.shellshot.ui.components.FloatingDock
 import com.example.shellshot.ui.components.ShellShotBackdrop
+import com.example.shellshot.ui.designsystem.ioslike.iosPageFlyInEnter
+import com.example.shellshot.ui.designsystem.ioslike.iosPageFlyOutExit
 import com.example.shellshot.ui.screen.HomeTabScreen
 import com.example.shellshot.ui.screen.LogsTabScreen
 import com.example.shellshot.ui.screen.SettingsTabScreen
 import com.example.shellshot.ui.screen.TemplatesTabScreen
-import com.example.shellshot.ui.theme.MotionConstants
 import dev.chrisbanes.haze.rememberHazeState
 import dev.chrisbanes.haze.hazeSource
 import com.example.shellshot.ui.components.AppIconId
@@ -144,24 +139,7 @@ fun ShellShotApp(
                 modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
                     val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                    (fadeIn(animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut)) +
-                        slideInHorizontally(
-                            animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut),
-                            initialOffsetX = { direction * (it / 10) },
-                        ) +
-                        scaleIn(
-                            initialScale = 0.985f,
-                            animationSpec = tween(MotionConstants.PageMs, easing = MotionConstants.iosEaseOut),
-                        )) togetherWith
-                        (fadeOut(animationSpec = tween(220, easing = MotionConstants.iosEaseInOut)) +
-                            slideOutHorizontally(
-                                animationSpec = tween(220, easing = MotionConstants.iosEaseInOut),
-                                targetOffsetX = { -direction * (it / 18) },
-                            ) +
-                            scaleOut(
-                                targetScale = 0.992f,
-                                animationSpec = tween(220, easing = MotionConstants.iosEaseInOut),
-                            ))
+                    iosPageFlyInEnter(direction) togetherWith iosPageFlyOutExit(direction)
                 },
                 label = "app-tabs",
             ) { tab ->
@@ -188,12 +166,16 @@ fun ShellShotApp(
                         }
                     },
                     onRequestMediaAccess = {
-                        mediaAccessLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.READ_MEDIA_IMAGES,
-                                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
-                            ),
-                        )
+                        if (uiState.permissionSnapshot.mediaAccessLevel == MediaAccessLevel.NotGranted) {
+                            mediaAccessLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.READ_MEDIA_IMAGES,
+                                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                                ),
+                            )
+                        } else {
+                            SpecialAccessNavigator.openAppDetailsSettings(context)
+                        }
                     },
                     onOpenManageAllFilesSettings = { SpecialAccessNavigator.openManageAllFilesSettings(context) },
                     onOpenBatteryOptimizationSettings = { SpecialAccessNavigator.openBatteryOptimizationSettings(context) },
@@ -238,7 +220,6 @@ private fun androidx.compose.animation.SharedTransitionScope.AppTabContent(
             modifier = Modifier.fillMaxSize(),
             uiState = uiState,
             isDark = uiState.resolvedDarkTheme,
-            hazeState = hazeState,
             onToggleThemeQuick = onToggleThemeQuick,
             onToggleMonitoring = onToggleMonitoring,
         )

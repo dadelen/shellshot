@@ -1,6 +1,5 @@
 package com.example.shellshot
 
-import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
@@ -19,8 +18,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = AndroidColor.TRANSPARENT
-        window.navigationBarColor = AndroidColor.TRANSPARENT
 
         val appContainer = (application as ShellShotApplication).appContainer
 
@@ -33,6 +30,7 @@ class MainActivity : ComponentActivity() {
 
             SideEffect {
                 insetsController.isAppearanceLightStatusBars = !uiState.resolvedDarkTheme
+                insetsController.isAppearanceLightNavigationBars = !uiState.resolvedDarkTheme
             }
 
             ShellShotTheme(darkTheme = uiState.resolvedDarkTheme) {

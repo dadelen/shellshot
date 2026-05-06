@@ -103,9 +103,14 @@ class AppPrefs(
         settingsFlow.onEach { cachedSettingsRef.set(it) }.launchIn(cacheScope)
     }
 
+    fun cachedSettingsOrDefault(): AppSettings {
+        return cachedSettingsRef.get() ?: AppSettings()
+    }
+
     /**
      * Returns the latest settings snapshot without suspending.
-     * Falls back to a blocking read only if the cache hasn't been populated yet (extremely rare cold-start edge case).
+     * Prefer cachedSettingsOrDefault() on Android lifecycle entry points where blocking the main thread
+     * would be riskier than briefly using defaults.
      */
     fun cachedSettings(): AppSettings {
         return cachedSettingsRef.get() ?: runBlocking { settingsFlow.first() }.also { cachedSettingsRef.set(it) }
